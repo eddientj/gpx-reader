@@ -60,11 +60,26 @@ export function RecordScreen({ navigation, route }: Props) {
 
   useEffect(() => {
     const routeId = route.params?.navigateRouteId;
-    if (!routeId) return;
-    getRide(routeId).then((r) => {
-      setTargetRoute(r);
-      setNavSteps(r.navigationSteps);
-    });
+    if (!routeId) {
+      // Reaching this screen without a target route (e.g. the Record tab
+      // pressed directly rather than via a route's Navigate button) should
+      // never leave a *previous* Navigate session's route/steps showing —
+      // but only when nothing is actively being recorded, since switching
+      // tabs mid-navigation shouldn't silently drop the ride in progress.
+      if (!getActiveRecording()) resetNavigation();
+      return;
+    }
+    getRide(routeId)
+      .then((r) => {
+        setTargetRoute(r);
+        setNavSteps(r.navigationSteps);
+      })
+      .catch((err) => {
+        Alert.alert(
+          "Couldn't load that route",
+          err instanceof Error ? err.message : "Unknown error"
+        );
+      });
   }, [route.params?.navigateRouteId]);
 
   // Polls the recording file rather than subscribing to location events
@@ -209,7 +224,9 @@ export function RecordScreen({ navigation, route }: Props) {
       ensureWeatherCached(summary.id).catch(() => {});
       setRecording(null);
       resetNavigation();
-      navigation.navigate("Routes", {
+      // Every recorded ride belongs on the My Rides tab, whether this was a
+      // plain recording or a Navigate session against a Routes-tab entry.
+      navigation.navigate("MyRides", {
         screen: "RideDetail",
         params: { id: summary.id },
       });

@@ -59,13 +59,24 @@ function readIndex(): RideSummary[] {
   try {
     const index: RideSummary[] = JSON.parse(raw);
     // Rides saved before activityType/origin existed simply lack the field.
-    // origin infers from sourceFileName since that was the only prior signal
-    // (present -> imported, null -> recorded — planned routes didn't exist
-    // yet at that point, so there's no ambiguity to backfill for them).
+    // origin infers from sourceFileName, but that inference has two distinct
+    // eras to account for: once sourceFileName existed as a tracked field,
+    // "present -> imported, explicit null -> recorded" is unambiguous. But
+    // rides saved before sourceFileName was tracked at all (the field is
+    // missing from the JSON entirely, not just null) predate live recording
+    // existing as a feature — at that point every ride was necessarily an
+    // import, so those must default to "imported", not "recorded" (which
+    // would otherwise wrongly show them with Avg/Max Speed cards).
     return index.map((r) => ({
       ...r,
       activityType: r.activityType ?? "cycling",
-      origin: r.origin ?? (r.sourceFileName ? "imported" : "recorded"),
+      origin:
+        r.origin ??
+        ("sourceFileName" in r
+          ? r.sourceFileName
+            ? "imported"
+            : "recorded"
+          : "imported"),
     }));
   } catch (err) {
     // Surface the actual corrupted content rather than letting listRides()

@@ -200,16 +200,21 @@ export function RoutePlannerScreen({ navigation }: Props) {
     };
   }, [waypoints, deviceLocation]);
 
-  const routeGeoJson: GeoJSON.Feature | null = calculatedRoute
-    ? {
-        type: "Feature",
-        properties: {},
-        geometry: {
-          type: "LineString",
-          coordinates: calculatedRoute.points.map((p) => [p.lon, p.lat]),
-        },
-      }
-    : null;
+  // OSRM can return a single-point "route" for two near-identical waypoints
+  // (e.g. a waypoint dragged onto another) — a GeoJSON LineString needs at
+  // least 2 positions, so skip the line rather than let MapLibre log an
+  // "Invalid geometry" warning and drop it anyway.
+  const routeGeoJson: GeoJSON.Feature | null =
+    calculatedRoute && calculatedRoute.points.length >= 2
+      ? {
+          type: "Feature",
+          properties: {},
+          geometry: {
+            type: "LineString",
+            coordinates: calculatedRoute.points.map((p) => [p.lon, p.lat]),
+          },
+        }
+      : null;
 
   const distanceLabel = calculating
     ? "Calculating…"

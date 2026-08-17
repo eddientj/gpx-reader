@@ -32,6 +32,58 @@ export function LiveMapRoute({ points, fullScreen, referencePoints }: Props) {
     fullScreen && styles.fullScreen,
   ];
 
+  // The recording poll (src/screens/RecordScreen.tsx) re-fetches `points`
+  // from storage every 2s, handing this component a brand-new array
+  // reference each time even on ticks where nothing was actually appended —
+  // and every recomputed GeoJSON.Feature gets pushed to MapLibre's native
+  // layer as if it were new data, forcing a full re-parse. Points are
+  // append-only during a recording, so `points.length` is a safe, cheap
+  // proxy for "did this actually change" — this was silently re-parsing the
+  // whole route on every tick regardless of route size, which is a much
+  // more likely cause of a sluggish/blank map on a long route than the
+  // route's size on its own.
+  const coordinates = useMemo(
+    () => points.map((p): [number, number] => [p.lon, p.lat]),
+    [points.length]
+  );
+  const last = coordinates[coordinates.length - 1];
+  // A GeoJSON LineString needs at least 2 positions to be valid — with just
+  // the first point in, there's nothing to draw a line between yet (this
+  // was logging a real "Invalid geometry" warning from MapLibre otherwise).
+  const hasLine = coordinates.length >= 2;
+
+  const routeGeoJson: GeoJSON.Feature = useMemo(
+    () => ({
+      type: "Feature",
+      properties: {},
+      geometry: { type: "LineString", coordinates },
+    }),
+    [coordinates]
+  );
+
+  // Unlike `points`, `referencePoints` (the target route being navigated) is
+  // only ever replaced wholesale — on load and on a reroute — so it's safe
+  // to memo directly on its own reference rather than a length proxy.
+  const referenceGeoJson: GeoJSON.Feature | null = useMemo(
+    () =>
+      referencePoints && referencePoints.length >= 2
+        ? {
+            type: "Feature",
+            properties: {},
+            geometry: {
+              type: "LineString",
+              coordinates: referencePoints.map((p) => [p.lon, p.lat]),
+            },
+          }
+        : null,
+    [referencePoints]
+  );
+
+  // This has to come after every hook above — calling hooks conditionally
+  // (e.g. from an early return before them) would change how many hooks run
+  // between the "no points yet" render and every render after, which breaks
+  // React's rule that a component call the same hooks in the same order
+  // every time.
   if (points.length === 0) {
     return (
       <View style={[...containerStyle, styles.waiting]}>
@@ -39,31 +91,6 @@ export function LiveMapRoute({ points, fullScreen, referencePoints }: Props) {
       </View>
     );
   }
-
-  const coordinates: [number, number][] = points.map((p) => [p.lon, p.lat]);
-  const last = coordinates[coordinates.length - 1];
-  // A GeoJSON LineString needs at least 2 positions to be valid — with just
-  // the first point in, there's nothing to draw a line between yet (this
-  // was logging a real "Invalid geometry" warning from MapLibre otherwise).
-  const hasLine = coordinates.length >= 2;
-
-  const routeGeoJson: GeoJSON.Feature = {
-    type: "Feature",
-    properties: {},
-    geometry: { type: "LineString", coordinates },
-  };
-
-  const referenceGeoJson: GeoJSON.Feature | null =
-    referencePoints && referencePoints.length >= 2
-      ? {
-          type: "Feature",
-          properties: {},
-          geometry: {
-            type: "LineString",
-            coordinates: referencePoints.map((p) => [p.lon, p.lat]),
-          },
-        }
-      : null;
 
   return (
     <View style={containerStyle}>

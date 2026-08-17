@@ -116,3 +116,14 @@ export async function ensureWeatherCached(id: string): Promise<void> {
   const weather = await fetchHistoricalWeather(first.lat, first.lon, dateIso);
   if (weather) await saveWeather(id, weather);
 }
+
+// Tracks which rides already had a prefetch attempt this app run, so a
+// mount-time backfill across every screen that lists rides doesn't re-read
+// and re-request the same ride's weather each time it's visited.
+const weatherPrefetchAttempted = new Set<string>();
+
+export function prefetchWeather(id: string): void {
+  if (weatherPrefetchAttempted.has(id)) return;
+  weatherPrefetchAttempted.add(id);
+  ensureWeatherCached(id).catch(() => {});
+}

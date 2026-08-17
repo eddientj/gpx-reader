@@ -1,11 +1,12 @@
 import { Camera, GeoJSONSource, Layer, Map, Marker } from "@maplibre/maplibre-react-native";
 import { useMemo } from "react";
-import { StyleSheet, View } from "react-native";
+import { StyleSheet, Text, View } from "react-native";
 import type { TrackPoint } from "../lib/types";
 import { useTheme, type Theme } from "../theme/ThemeContext";
 
 // OpenFreeMap: free vector tiles, no API key, no usage limits.
 const STYLE_URL = "https://tiles.openfreemap.org/styles/liberty";
+const SINGLE_POINT_ZOOM = 15;
 
 type Props = {
   points: TrackPoint[];
@@ -16,7 +17,29 @@ export function MapRoute({ points }: Props) {
   const styles = useMemo(() => makeStyles(theme), [theme]);
   const { colors } = theme;
 
+  if (points.length === 0) {
+    return (
+      <View style={[styles.container, styles.empty]}>
+        <Text style={styles.emptyText}>No route data available</Text>
+      </View>
+    );
+  }
+
   const coordinates: [number, number][] = points.map((p) => [p.lon, p.lat]);
+  const start = coordinates[0];
+  const end = coordinates[coordinates.length - 1];
+  // A GeoJSON LineString needs at least 2 positions to be valid — a
+  // single-point route (e.g. a near-instant recording) can still show its
+  // one marker, just without a line (this used to log a real "Invalid
+  // geometry" warning from MapLibre and skip rendering the marker below it).
+  const hasLine = coordinates.length >= 2;
+
+  const routeGeoJson: GeoJSON.Feature = {
+    type: "Feature",
+    properties: {},
+    geometry: { type: "LineString", coordinates },
+  };
+
   const lats = points.map((p) => p.lat);
   const lons = points.map((p) => p.lon);
   const bounds: [number, number, number, number] = [
@@ -26,35 +49,37 @@ export function MapRoute({ points }: Props) {
     Math.max(...lats),
   ];
 
-  const routeGeoJson: GeoJSON.Feature = {
-    type: "Feature",
-    properties: {},
-    geometry: { type: "LineString", coordinates },
-  };
-
   return (
     <View style={styles.container}>
       <Map mapStyle={STYLE_URL} style={styles.map} logo={false}>
-        <Camera
-          initialViewState={{
-            bounds,
-            padding: { top: 40, right: 40, bottom: 40, left: 40 },
-          }}
-        />
-        <GeoJSONSource id="route" data={routeGeoJson}>
-          <Layer
-            id="routeLine"
-            type="line"
-            layout={{ "line-cap": "round", "line-join": "round" }}
-            paint={{ "line-color": colors.primary, "line-width": 4 }}
+        {hasLine ? (
+          <Camera
+            initialViewState={{
+              bounds,
+              padding: { top: 40, right: 40, bottom: 40, left: 40 },
+            }}
           />
-        </GeoJSONSource>
-        <Marker id="start" lngLat={coordinates[0]}>
+        ) : (
+          <Camera initialViewState={{ center: start, zoom: SINGLE_POINT_ZOOM }} />
+        )}
+        {hasLine && (
+          <GeoJSONSource id="route" data={routeGeoJson}>
+            <Layer
+              id="routeLine"
+              type="line"
+              layout={{ "line-cap": "round", "line-join": "round" }}
+              paint={{ "line-color": colors.primary, "line-width": 4 }}
+            />
+          </GeoJSONSource>
+        )}
+        <Marker id="start" lngLat={start}>
           <View style={[styles.marker, styles.startMarker]} />
         </Marker>
-        <Marker id="end" lngLat={coordinates[coordinates.length - 1]}>
-          <View style={[styles.marker, styles.endMarker]} />
-        </Marker>
+        {hasLine && (
+          <Marker id="end" lngLat={end}>
+            <View style={[styles.marker, styles.endMarker]} />
+          </Marker>
+        )}
       </Map>
     </View>
   );
@@ -63,6 +88,12 @@ export function MapRoute({ points }: Props) {
 function makeStyles({ colors, radii }: Theme) {
   return StyleSheet.create({
     container: { height: 260, borderRadius: radii.md, overflow: "hidden" },
+    empty: {
+      backgroundColor: colors.surface,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    emptyText: { color: colors.textMuted },
     map: { flex: 1 },
     marker: {
       width: 14,

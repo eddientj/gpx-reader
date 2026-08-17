@@ -8,6 +8,7 @@ export type RootStackParamList = {
 
 export type RootTabParamList = {
   Routes: NavigatorScreenParams<RootStackParamList>;
+  MyRides: NavigatorScreenParams<RootStackParamList>;
   Record: { navigateRouteId?: string } | undefined;
   Compare: undefined;
 };

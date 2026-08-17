@@ -1,31 +1,12 @@
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useFocusEffect } from "@react-navigation/native";
 import { File } from "expo-file-system";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  Alert,
-  FlatList,
-  Modal,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
-import Animated, {
-  FadeIn,
-  FadeOut,
-  LinearTransition,
-} from "react-native-reanimated";
+import { useCallback, useMemo, useState } from "react";
+import { Alert, FlatList, Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import { AnimatedPressable } from "../components/AnimatedPressable";
-import { SwipeableRow } from "../components/SwipeableRow";
+import { RidesList } from "../components/RidesList";
 import { useIncomingGpx } from "../hooks/useIncomingGpx";
-import {
-  formatDate,
-  formatDistance,
-  formatDurationOrEstimate,
-  formatElevation,
-  rideNameFromFileName,
-} from "../lib/format";
+import { formatDate, rideNameFromFileName } from "../lib/format";
 import type { GpxFileEntry } from "../lib/picker";
 import {
   hasAllFilesAccess,
@@ -35,24 +16,11 @@ import {
 } from "../lib/picker";
 import { deleteRide, listRides, saveRide } from "../lib/storage";
 import type { RideSummary } from "../lib/types";
-import { ensureWeatherCached } from "../lib/weather";
+import { prefetchWeather } from "../lib/weather";
 import { useTheme, type Theme } from "../theme/ThemeContext";
 import type { RootStackParamList } from "../navigation/types";
 
 type Props = NativeStackScreenProps<RootStackParamList, "Home">;
-
-// Weather is cheap and reliable enough to prefetch eagerly, unlike the
-// slower/less reliable Overpass route analysis (still fetched lazily on the
-// detail screen). Tracks which rides already had a prefetch attempt this
-// app run, so the mount-time backfill below doesn't redo work every time
-// the user navigates back to this screen.
-const weatherPrefetchAttempted = new Set<string>();
-
-function prefetchWeather(id: string): void {
-  if (weatherPrefetchAttempted.has(id)) return;
-  weatherPrefetchAttempted.add(id);
-  ensureWeatherCached(id).catch(() => {});
-}
 
 export function HomeScreen({ navigation }: Props) {
   const theme = useTheme();
@@ -76,15 +44,6 @@ export function HomeScreen({ navigation }: Props) {
   }, []);
 
   useFocusEffect(refresh);
-
-  // One-time backfill for rides that existed before weather prefetching did,
-  // or that were saved while offline — ensureWeatherCached no-ops for
-  // anything already cached, so this is cheap on repeat app runs too.
-  useEffect(() => {
-    listRides().then((all) => {
-      for (const r of all) prefetchWeather(r.id);
-    });
-  }, []);
 
   async function importXml(fileName: string, xml: string) {
     setImporting(true);
@@ -202,6 +161,11 @@ export function HomeScreen({ navigation }: Props) {
     refresh();
   }
 
+  // This tab is for anything you'd navigate but haven't ridden live yet
+  // (imported from a file, or drawn in the planner) — actual GPS-tracked
+  // rides live on the separate My Rides tab instead.
+  const routes = rides.filter((r) => r.origin !== "recorded");
+
   return (
     <View style={styles.container}>
       <View style={styles.actions}>
@@ -230,43 +194,11 @@ export function HomeScreen({ navigation }: Props) {
         </Text>
       </Pressable>
 
-      <FlatList
-        data={rides}
-        keyExtractor={(r) => r.id}
-        contentContainerStyle={styles.list}
-        ListEmptyComponent={
-          <Text style={styles.empty}>
-            No routes yet. Import a GPX file to get started.
-          </Text>
-        }
-        renderItem={({ item }) => (
-          <Animated.View
-            entering={FadeIn}
-            exiting={FadeOut}
-            layout={LinearTransition}
-          >
-            <SwipeableRow onDelete={() => handleDelete(item.id)}>
-              <Pressable
-                style={styles.rideRow}
-                onPress={() =>
-                  navigation.navigate("RideDetail", { id: item.id })
-                }
-              >
-                <Text style={styles.rideName}>{item.name}</Text>
-                <Text style={styles.rideMeta}>{formatDate(item.importedAt)}</Text>
-                <Text style={styles.rideStats}>
-                  {formatDistance(item.stats.distanceMeters)} ·{" "}
-                  {formatDurationOrEstimate(
-                    item.stats.durationSeconds,
-                    item.stats.distanceMeters
-                  )}{" "}
-                  · ↑{formatElevation(item.stats.elevationGainMeters)} ↓
-                  {formatElevation(item.stats.elevationLossMeters)}
-                </Text>
-              </Pressable>
-            </SwipeableRow>
-          </Animated.View>
-        )}
+      <RidesList
+        rides={routes}
+        emptyText="No routes yet. Import a GPX file or plan one to get started."
+        onPress={(id) => navigation.navigate("RideDetail", { id })}
+        onDelete={handleDelete}
       />
 
       <Modal
@@ -344,37 +276,6 @@ function makeStyles({ colors, radii }: Theme) {
       color: colors.highlight,
       fontSize: 13,
       textAlign: "center",
-    },
-    list: {
-      paddingBottom: 24,
-    },
-    empty: {
-      textAlign: "center",
-      color: colors.textMuted,
-      marginTop: 40,
-      marginHorizontal: 16,
-    },
-    rideRow: {
-      backgroundColor: colors.background,
-      paddingVertical: 14,
-      paddingHorizontal: 16,
-      borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: colors.border,
-    },
-    rideName: {
-      fontSize: 16,
-      fontWeight: "600",
-      color: colors.text,
-    },
-    rideMeta: {
-      fontSize: 13,
-      color: colors.textMuted,
-      marginTop: 4,
-    },
-    rideStats: {
-      fontSize: 13,
-      color: colors.textMuted,
-      marginTop: 2,
     },
     modalOverlay: {
       flex: 1,

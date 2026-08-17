@@ -6,15 +6,20 @@ import {
   NavigationContainer,
 } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import { useEffect } from "react";
 import { CompareScreen } from "../screens/CompareScreen";
 import { HomeScreen } from "../screens/HomeScreen";
+import { MyRidesScreen } from "../screens/MyRidesScreen";
 import { RecordScreen } from "../screens/RecordScreen";
 import { RideDetailScreen } from "../screens/RideDetailScreen";
 import { RoutePlannerScreen } from "../screens/RoutePlannerScreen";
+import { listRides } from "../lib/storage";
+import { prefetchWeather } from "../lib/weather";
 import { useTheme } from "../theme/ThemeContext";
 import type { RootStackParamList, RootTabParamList } from "./types";
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
+const MyRidesTabStack = createNativeStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator<RootTabParamList>();
 
 // The "Routes" tab owns its own push stack (list -> detail) — Record and
@@ -50,8 +55,47 @@ function RoutesStack() {
   );
 }
 
+// A separate stack (not just another screen inside RoutesStack) so "My
+// Rides" and "Routes" are independent bottom tabs with their own back
+// stacks — a ride's detail screen is the one component shared between the
+// two, reused as-is since its behavior already keys off `ride.origin`.
+function MyRidesStack() {
+  const { colors } = useTheme();
+  return (
+    <MyRidesTabStack.Navigator
+      initialRouteName="Home"
+      screenOptions={{
+        headerStyle: { backgroundColor: colors.surface },
+        headerTintColor: colors.text,
+        contentStyle: { backgroundColor: colors.background },
+      }}
+    >
+      <MyRidesTabStack.Screen
+        name="Home"
+        component={MyRidesScreen}
+        options={{ title: "My Rides" }}
+      />
+      <MyRidesTabStack.Screen
+        name="RideDetail"
+        component={RideDetailScreen}
+        options={{ title: "Ride" }}
+      />
+    </MyRidesTabStack.Navigator>
+  );
+}
+
 export function RootNavigator() {
   const { colors, scheme } = useTheme();
+
+  // Runs once regardless of which tab the user opens first — living inside
+  // a single tab's screen would leave the other tab's rides never
+  // backfilled until that tab happened to be visited.
+  useEffect(() => {
+    listRides().then((all) => {
+      for (const r of all) prefetchWeather(r.id);
+    });
+  }, []);
+
   const base = scheme === "dark" ? DarkTheme : DefaultTheme;
   const navigationTheme = {
     ...base,
@@ -86,6 +130,21 @@ export function RootNavigator() {
             tabBarIcon: ({ color, size, focused }) => (
               <Ionicons
                 name={focused ? "map" : "map-outline"}
+                size={size}
+                color={color}
+              />
+            ),
+          }}
+        />
+        <Tab.Screen
+          name="MyRides"
+          component={MyRidesStack}
+          options={{
+            headerShown: false,
+            title: "My Rides",
+            tabBarIcon: ({ color, size, focused }) => (
+              <Ionicons
+                name={focused ? "bicycle" : "bicycle-outline"}
                 size={size}
                 color={color}
               />
