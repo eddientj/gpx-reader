@@ -2,6 +2,16 @@
 
 A running log of how this app was built, in the order it happened. Kept because a handful of the decisions below (especially the free-service workarounds) aren't obvious from the code alone.
 
+## 2026-08-17 — Bug fixes, separate My Rides tab, legacy data cleanup
+
+- **Fixed**: `MapRoute` (Ride Detail's static map) had no guard against fewer than 2 GPS points, unlike `LiveMapRoute` — caused a real "Invalid geometry" MapLibre warning on any short ride. Same guard added, plus a matching one in `RoutePlannerScreen` for a degenerate single-point OSRM route (two waypoints dragged onto each other).
+- **Fixed**: `LiveMapRoute` rebuilt its GeoJSON on every render rather than only when the underlying points changed, pushing a full re-parse to MapLibre's native layer every 2s poll regardless of route size — memoized it. Caught and fixed a Rules-of-Hooks ordering bug in the same pass.
+- **Fixed**: `RecordScreen` had no error handling if loading a target route failed, and could show a stale "Navigate: X" banner if reopened without one while nothing was recording.
+- **Fixed**: the origin-inference fallback for rides saved before `sourceFileName` existed as a field defaulted them to `"recorded"` — but recording didn't exist as a feature that early, so they must have been imports. Corrected two legacy rows' stored data directly.
+- **Root-caused, not a bug**: "the map isn't showing up" during Navigate turned out to be the device's system Location Services toggle being off, not an app issue — the app's own permissions were always correctly granted.
+- **My Rides tab**: split into a separate bottom tab from Routes (rather than sections on one screen) so it scales as the list grows. Extracted a shared `RidesList` component so the two tabs' row rendering and swipe-to-delete isn't duplicated.
+- **Lesson learned the hard way**: never run `adb uninstall`/`pm clear` on this app to get a "clean" test state — it wipes `files/rides/*` entirely. Android's Auto Backup happened to restore an older snapshot this time, but that's not guaranteed. Back up `files/rides/index.json` and each ride's `{id}.json` first if a clean slate is genuinely needed.
+
 ## 2026-08-15 — Full-screen recording, route planning, voice navigation
 
 - **Full-screen recording map (Phase A).** `RecordScreen` restructured so the live map fills the entire screen behind a floating, semi-transparent stats/controls card, instead of scrolling. Header and tab bar hide while a recording is active.
