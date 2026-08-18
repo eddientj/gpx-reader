@@ -1,3 +1,4 @@
+import Ionicons from "@expo/vector-icons/Ionicons";
 import type { BottomTabScreenProps } from "@react-navigation/bottom-tabs";
 import * as Speech from "expo-speech";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -55,6 +56,7 @@ export function RecordScreen({ navigation, route }: Props) {
   const [targetRoute, setTargetRoute] = useState<RideDetail | null>(null);
   const [navSteps, setNavSteps] = useState<RouteStep[] | null>(null);
   const [lastAnnouncement, setLastAnnouncement] = useState<string | null>(null);
+  const [voiceMuted, setVoiceMuted] = useState(false);
   const spokenIndicesRef = useRef<Set<number>>(new Set());
   const reroutingRef = useRef(false);
 
@@ -108,7 +110,9 @@ export function RecordScreen({ navigation, route }: Props) {
         }
         const text = speakableInstruction(toAnnounce.step);
         setLastAnnouncement(text);
-        Speech.speak(text);
+        // The banner still shows the instruction either way — muting only
+        // silences the spoken audio, not the visual cue.
+        if (!voiceMuted) Speech.speak(text);
       }
 
       if (!reroutingRef.current && isOffRoute(last, targetRoute.points)) {
@@ -130,7 +134,7 @@ export function RecordScreen({ navigation, route }: Props) {
     tick();
     const poll = setInterval(tick, POLL_INTERVAL_MS);
     return () => clearInterval(poll);
-  }, [targetRoute, navSteps]);
+  }, [targetRoute, navSteps, voiceMuted]);
 
   useEffect(() => {
     if (!recording || recording.paused) return;
@@ -175,6 +179,15 @@ export function RecordScreen({ navigation, route }: Props) {
     } finally {
       setStarting(false);
     }
+  }
+
+  // The tab bar/header are hidden by the effect above for as long as
+  // `recording` is set — there's otherwise no way to switch tabs (e.g. to
+  // check a route) without stopping the ride first. Revealing the tab bar
+  // here doesn't touch `recording` at all, so the recording (and the live
+  // map, if the user comes back to this tab) keeps running untouched.
+  function handleMinimize() {
+    navigation.setOptions({ tabBarStyle: undefined });
   }
 
   function handlePause() {
@@ -226,6 +239,12 @@ export function RecordScreen({ navigation, route }: Props) {
       resetNavigation();
       // Every recorded ride belongs on the My Rides tab, whether this was a
       // plain recording or a Navigate session against a Routes-tab entry.
+      // Navigating straight to a nested screen the My Rides tab has never
+      // shown yet can initialize that tab's stack with *only* RideDetail —
+      // no Home underneath it to go back to, so the header gets no back
+      // button. Visiting Home first establishes it in that stack's history
+      // before RideDetail is pushed on top of it.
+      navigation.navigate("MyRides", { screen: "Home" });
       navigation.navigate("MyRides", {
         screen: "RideDetail",
         params: { id: summary.id },
@@ -275,9 +294,30 @@ export function RecordScreen({ navigation, route }: Props) {
         referencePoints={targetRoute?.points}
       />
 
+      <View style={[styles.topControls, { top: insets.top + theme.spacing.sm }]}>
+        <AnimatedPressable style={styles.iconButton} onPress={handleMinimize}>
+          <Ionicons name="chevron-down" size={22} color={theme.colors.text} />
+        </AnimatedPressable>
+        {targetRoute && (
+          <AnimatedPressable
+            style={styles.iconButton}
+            onPress={() => setVoiceMuted((muted) => !muted)}
+          >
+            <Ionicons
+              name={voiceMuted ? "volume-mute" : "volume-high"}
+              size={22}
+              color={theme.colors.text}
+            />
+          </AnimatedPressable>
+        )}
+      </View>
+
       {lastAnnouncement && (
         <View
-          style={[styles.navBanner, { top: insets.top + theme.spacing.md }]}
+          style={[
+            styles.navBanner,
+            { top: insets.top + theme.spacing.sm + 52 },
+          ]}
         >
           <Text style={styles.navBannerText}>{lastAnnouncement}</Text>
         </View>
@@ -354,6 +394,21 @@ function makeStyles({ colors, radii, spacing }: Theme) {
       borderTopRightRadius: radii.lg,
       paddingHorizontal: spacing.lg,
       paddingTop: spacing.lg,
+    },
+    topControls: {
+      position: "absolute",
+      left: spacing.lg,
+      right: spacing.lg,
+      flexDirection: "row",
+      justifyContent: "space-between",
+    },
+    iconButton: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: `${colors.surface}F2`,
+      alignItems: "center",
+      justifyContent: "center",
     },
     navBanner: {
       position: "absolute",

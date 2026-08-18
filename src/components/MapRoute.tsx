@@ -7,6 +7,15 @@ import { useTheme, type Theme } from "../theme/ThemeContext";
 // OpenFreeMap: free vector tiles, no API key, no usage limits.
 const STYLE_URL = "https://tiles.openfreemap.org/styles/liberty";
 const SINGLE_POINT_ZOOM = 15;
+// A bounds-fit camera on a near-zero-size box (e.g. a near-stationary
+// recording where every point sits within a few meters of the others)
+// pushes MapLibre toward an extreme zoom level outside the style's valid
+// range — the markers/line still draw fine since they're plain vector
+// overlays, but the base map tiles silently fail to load, leaving a blank
+// gray/white square that looks broken. Below this span, fall back to a
+// fixed-zoom center camera the same way a true single-point route already
+// does, rather than fitting to a degenerate box.
+const MIN_BOUNDS_SPAN_DEGREES = 0.001; // roughly 100m
 
 type Props = {
   points: TrackPoint[];
@@ -42,17 +51,19 @@ export function MapRoute({ points }: Props) {
 
   const lats = points.map((p) => p.lat);
   const lons = points.map((p) => p.lon);
-  const bounds: [number, number, number, number] = [
-    Math.min(...lons),
-    Math.min(...lats),
-    Math.max(...lons),
-    Math.max(...lats),
-  ];
+  const minLon = Math.min(...lons);
+  const minLat = Math.min(...lats);
+  const maxLon = Math.max(...lons);
+  const maxLat = Math.max(...lats);
+  const bounds: [number, number, number, number] = [minLon, minLat, maxLon, maxLat];
+  const boundsTooSmall =
+    maxLon - minLon < MIN_BOUNDS_SPAN_DEGREES &&
+    maxLat - minLat < MIN_BOUNDS_SPAN_DEGREES;
 
   return (
     <View style={styles.container}>
       <Map mapStyle={STYLE_URL} style={styles.map} logo={false}>
-        {hasLine ? (
+        {hasLine && !boundsTooSmall ? (
           <Camera
             initialViewState={{
               bounds,

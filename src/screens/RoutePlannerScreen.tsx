@@ -49,6 +49,11 @@ function waypointLabel(w: PlannerWaypoint, index: number, total: number): string
 
 const SEARCH_DEBOUNCE_MS = 500;
 const ROUTE_DEBOUNCE_MS = 600;
+// A bounds-fit camera on a near-zero-size box (waypoints placed within a
+// few meters of each other) pushes MapLibre toward an extreme zoom level
+// outside the style's valid range, so the base tiles fail to load and the
+// map goes blank — see the identical guard in components/MapRoute.tsx.
+const MIN_BOUNDS_SPAN_DEGREES = 0.001; // roughly 100m
 
 // OpenFreeMap's vector style covers "standard"; satellite needs a separate
 // free raster source since OpenFreeMap only serves the one style. Esri's
@@ -238,13 +243,21 @@ export function RoutePlannerScreen({ navigation }: Props) {
     }
     const lats = waypoints.map((w) => w.lat);
     const lons = waypoints.map((w) => w.lon);
+    const minLon = Math.min(...lons);
+    const minLat = Math.min(...lats);
+    const maxLon = Math.max(...lons);
+    const maxLat = Math.max(...lats);
+    if (
+      maxLon - minLon < MIN_BOUNDS_SPAN_DEGREES &&
+      maxLat - minLat < MIN_BOUNDS_SPAN_DEGREES
+    ) {
+      return {
+        center: [waypoints[waypoints.length - 1].lon, waypoints[waypoints.length - 1].lat] as [number, number],
+        zoom: 15,
+      };
+    }
     return {
-      bounds: [
-        Math.min(...lons),
-        Math.min(...lats),
-        Math.max(...lons),
-        Math.max(...lats),
-      ] as [number, number, number, number],
+      bounds: [minLon, minLat, maxLon, maxLat] as [number, number, number, number],
       padding: { top: 120, right: 60, bottom: 280, left: 60 },
     };
   }, [waypoints, deviceLocation]);
@@ -314,7 +327,9 @@ export function RoutePlannerScreen({ navigation }: Props) {
             >
               <View
                 style={[styles.waypointMarker, { backgroundColor: markerColor }]}
-              />
+              >
+                <Text style={styles.waypointMarkerText}>{i + 1}</Text>
+              </View>
             </Marker>
           );
         })}
@@ -451,11 +466,18 @@ function makeStyles({ colors, spacing, radii }: Theme) {
       borderRadius: radii.md,
     },
     waypointMarker: {
-      width: 18,
-      height: 18,
-      borderRadius: 9,
+      width: 26,
+      height: 26,
+      borderRadius: 13,
       borderWidth: 2,
       borderColor: colors.surface,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+    waypointMarkerText: {
+      color: colors.surface,
+      fontSize: 12,
+      fontWeight: "700",
     },
     recenterButton: {
       position: "absolute",

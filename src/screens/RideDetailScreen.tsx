@@ -1,8 +1,9 @@
+import Ionicons from "@expo/vector-icons/Ionicons";
 import type { BottomTabScreenProps } from "@react-navigation/bottom-tabs";
 import type { CompositeScreenProps } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useEffect, useMemo, useState } from "react";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { AnimatedPressable } from "../components/AnimatedPressable";
 import { BreakdownBar } from "../components/BreakdownBar";
 import { ElevationChart } from "../components/ElevationChart";
@@ -48,6 +49,32 @@ export function RideDetailScreen({ route, navigation }: Props) {
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [weather, setWeather] = useState<WeatherSummary | null>(null);
   const [weatherLoading, setWeatherLoading] = useState(false);
+
+  // This screen is shared by both the Routes and My Rides stacks, and
+  // `RecordScreen` reaches it via a cross-tab navigate after Stop & Save —
+  // which, if that tab's stack already had a *different* RideDetail open
+  // from earlier, updates that existing instance in place rather than
+  // pushing a new one on top of a fresh Home, leaving nothing to go back
+  // to. Rather than depend on getting that cross-navigator dispatch exactly
+  // right, this always has a working way out: back up if there's somewhere
+  // to go back to, otherwise return to this stack's own Home.
+  useEffect(() => {
+    navigation.setOptions({
+      headerLeft: () => (
+        <Pressable
+          style={styles.headerBackButton}
+          onPress={() =>
+            navigation.canGoBack()
+              ? navigation.goBack()
+              : navigation.navigate("Home")
+          }
+          hitSlop={12}
+        >
+          <Ionicons name="arrow-back" size={22} color={theme.colors.text} />
+        </Pressable>
+      ),
+    });
+  }, [theme]);
 
   useEffect(() => {
     getRide(route.params.id).then((r) => {
@@ -191,6 +218,7 @@ function makeStyles({ colors, radii }: Theme) {
   return StyleSheet.create({
     container: { flex: 1, backgroundColor: colors.background },
     content: { padding: 16, paddingBottom: 32 },
+    headerBackButton: { paddingHorizontal: 12, paddingVertical: 4 },
     centered: {
       flex: 1,
       alignItems: "center",
