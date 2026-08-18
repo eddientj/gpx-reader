@@ -1,3 +1,4 @@
+import Ionicons from "@expo/vector-icons/Ionicons";
 import { Camera, GeoJSONSource, Layer, Map, Marker } from "@maplibre/maplibre-react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import * as Location from "expo-location";
@@ -72,12 +73,17 @@ export function RoutePlannerScreen({ navigation }: Props) {
   >(null);
 
   // Without this, an empty map (no waypoints yet) falls back to whatever
-  // default center/zoom is baked into the style JSON — usually nowhere near
-  // the user. Last-known position is enough for a sensible starting view
-  // and doesn't need a fresh permission prompt if one's already granted
-  // (e.g. from using Record before).
+  // default center/zoom is baked into the style JSON — the whole world, in
+  // OpenFreeMap's case. getLastKnownPositionAsync() only reads a cached fix
+  // and doesn't request one — it resolves to null (leaving the map stuck at
+  // that world view) whenever there's no recent cache, which is exactly the
+  // case right after installing the app or before Record has ever run once.
+  // Falling back to an active getCurrentPositionAsync() call covers that
+  // gap; it can prompt for permission if not already granted, which is the
+  // right tradeoff here since the alternative is a broken-looking map.
   useEffect(() => {
     Location.getLastKnownPositionAsync()
+      .then((position) => position ?? Location.getCurrentPositionAsync())
       .then((position) => {
         if (position) {
           setDeviceLocation({
@@ -274,7 +280,7 @@ export function RoutePlannerScreen({ navigation }: Props) {
             style={styles.backButton}
             onPress={() => navigation.goBack()}
           >
-            <Text style={styles.backButtonText}>←</Text>
+            <Ionicons name="arrow-back" size={20} color={colors.text} />
           </AnimatedPressable>
           <TextInput
             style={styles.searchInput}
@@ -410,8 +416,8 @@ function makeStyles({ colors, spacing, radii }: Theme) {
       borderRadius: radii.sm,
       paddingHorizontal: spacing.md,
       justifyContent: "center",
+      alignItems: "center",
     },
-    backButtonText: { color: colors.text, fontSize: 18, fontWeight: "700" },
     searchInput: {
       flex: 1,
       backgroundColor: `${colors.surface}F2`,
