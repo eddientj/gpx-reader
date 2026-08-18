@@ -17,8 +17,9 @@ import {
   formatElevation,
   formatSpeed,
 } from "../lib/format";
-import { getRide, saveRouteAnalysis, saveWeather } from "../lib/storage";
-import type { RideDetail, RouteAnalysis, WeatherSummary } from "../lib/types";
+import { reverseGeocode } from "../lib/geocoding";
+import { getRide, saveRouteAnalysis, saveWaypoints, saveWeather } from "../lib/storage";
+import type { RideDetail, RouteAnalysis, Waypoint, WeatherSummary } from "../lib/types";
 import { analyzeRoute } from "../lib/waytypes";
 import { fetchHistoricalWeather } from "../lib/weather";
 import { useTheme, type Theme } from "../theme/ThemeContext";
@@ -40,6 +41,7 @@ type Props = CompositeScreenProps<
 // is normally a handful, not fifty. Past this many, showing them as a list
 // would just be a wall of driving directions, not useful waypoints.
 const MAX_MEANINGFUL_WAYPOINTS = 20;
+const NOMINATIM_RATE_LIMIT_MS = 1100;
 
 export function RideDetailScreen({ route, navigation }: Props) {
   const theme = useTheme();
@@ -111,8 +113,41 @@ export function RideDetailScreen({ route, navigation }: Props) {
           })
           .finally(() => setWeatherLoading(false));
       }
+
+      // A waypoint dropped by tapping the map (rather than picked from
+      // search) has no name — resolve it to a real address once and cache
+      // it permanently, the same "fetch once, persist forever" pattern as
+      // the way-type analysis and weather above. Only within the same cap
+      // the list itself uses, so a huge turn-by-turn waypoint dump doesn't
+      // trigger dozens of geocoding requests for cues that won't even show.
+      const unresolved = r.waypoints
+        .map((w, index) => (w.name === null ? index : -1))
+        .filter((index) => index !== -1);
+      if (unresolved.length > 0 && r.waypoints.length <= MAX_MEANINGFUL_WAYPOINTS) {
+        resolveWaypointAddresses(r.id, r.waypoints, unresolved);
+      }
     });
   }, [route.params.id]);
+
+  // Resolves each unnamed waypoint in turn (not in parallel — Nominatim's
+  // usage policy caps requests at 1/second), updating the screen as each
+  // one comes in rather than waiting for the whole list to finish.
+  async function resolveWaypointAddresses(
+    rideId: string,
+    waypoints: Waypoint[],
+    indices: number[]
+  ): Promise<void> {
+    const resolved = [...waypoints];
+    for (const index of indices) {
+      const address = await reverseGeocode(resolved[index].lat, resolved[index].lon);
+      if (address) {
+        resolved[index] = { ...resolved[index], name: address };
+        setRide((prev) => (prev ? { ...prev, waypoints: [...resolved] } : prev));
+      }
+      await new Promise((resolve) => setTimeout(resolve, NOMINATIM_RATE_LIMIT_MS));
+    }
+    saveWaypoints(rideId, resolved);
+  }
 
   if (!ride) {
     return (
@@ -128,17 +163,28 @@ export function RideDetailScreen({ route, navigation }: Props) {
     <ScrollView style={styles.container} contentContainerStyle={styles.content}>
       <MapRoute points={ride.points} />
 
-      {/* Navigating a route you've already ridden doesn't make much sense —
-          only offer it for routes you haven't done live yet. */}
+      {/* Navigating (or editing) a route you've already ridden doesn't make
+          much sense — only offer either for routes you haven't done live
+          yet. */}
       {ride.origin !== "recorded" && (
-        <AnimatedPressable
-          style={styles.navigateButton}
-          onPress={() =>
-            navigation.navigate("Record", { navigateRouteId: ride.id })
-          }
-        >
-          <Text style={styles.navigateButtonText}>Navigate</Text>
-        </AnimatedPressable>
+        <View style={styles.actionRow}>
+          <AnimatedPressable
+            style={[styles.navigateButton, styles.actionButton]}
+            onPress={() =>
+              navigation.navigate("Record", { navigateRouteId: ride.id })
+            }
+          >
+            <Text style={styles.navigateButtonText}>Navigate</Text>
+          </AnimatedPressable>
+          <AnimatedPressable
+            style={[styles.editButton, styles.actionButton]}
+            onPress={() =>
+              navigation.navigate("RoutePlanner", { editRideId: ride.id })
+            }
+          >
+            <Text style={styles.editButtonText}>Edit Route</Text>
+          </AnimatedPressable>
+        </View>
       )}
 
       <Text style={styles.sectionTitle}>Stats</Text>
@@ -166,7 +212,7 @@ export function RideDetailScreen({ route, navigation }: Props) {
         ride.waypoints.length <= MAX_MEANINGFUL_WAYPOINTS && (
           <>
             <Text style={styles.sectionTitle}>Waypoints</Text>
-            <WaypointsList waypoints={ride.waypoints} />
+            <WaypointsList waypoints={ride.waypoints} points={ride.points} />
           </>
         )}
 
@@ -225,14 +271,30 @@ function makeStyles({ colors, radii }: Theme) {
       justifyContent: "center",
       backgroundColor: colors.background,
     },
+    actionRow: {
+      flexDirection: "row",
+      gap: 10,
+      marginTop: 16,
+    },
+    actionButton: { flex: 1 },
     navigateButton: {
       backgroundColor: colors.primary,
       borderRadius: radii.sm,
       paddingVertical: 14,
       alignItems: "center",
-      marginTop: 16,
     },
     navigateButtonText: {
+      color: colors.primaryText,
+      fontWeight: "700",
+      fontSize: 16,
+    },
+    editButton: {
+      backgroundColor: colors.secondary,
+      borderRadius: radii.sm,
+      paddingVertical: 14,
+      alignItems: "center",
+    },
+    editButtonText: {
       color: colors.primaryText,
       fontWeight: "700",
       fontSize: 16,

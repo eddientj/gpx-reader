@@ -25,7 +25,9 @@ import { AnimatedPressable } from "../components/AnimatedPressable";
 import { formatDate, formatDistance } from "../lib/format";
 import { searchPlaces, type PlaceResult } from "../lib/geocoding";
 import { calculateRoute, type CalculatedRoute } from "../lib/routing";
-import { savePlannedRoute } from "../lib/storage";
+import { deriveEditableWaypoints } from "../lib/simplify";
+import { distanceAlongRouteMeters } from "../lib/stats";
+import { getRide, savePlannedRoute, updateRoute } from "../lib/storage";
 import type { Waypoint } from "../lib/types";
 import { useTheme, type Theme } from "../theme/ThemeContext";
 import type { RootStackParamList } from "../navigation/types";
@@ -49,6 +51,10 @@ function waypointLabel(w: PlannerWaypoint, index: number, total: number): string
 
 const SEARCH_DEBOUNCE_MS = 500;
 const ROUTE_DEBOUNCE_MS = 600;
+// An imported GPX's raw track has to be reduced to a small enough set of
+// control waypoints to hand-edit at all — this caps it at the same rough
+// ceiling planned routes are meant to stay under.
+const MAX_EDIT_WAYPOINTS = 10;
 // A bounds-fit camera on a near-zero-size box (waypoints placed within a
 // few meters of each other) pushes MapLibre toward an extreme zoom level
 // outside the style's valid range, so the base tiles fail to load and the
@@ -78,7 +84,7 @@ const MAP_STYLES = [
   },
 ];
 
-export function RoutePlannerScreen({ navigation }: Props) {
+export function RoutePlannerScreen({ navigation, route }: Props) {
   const theme = useTheme();
   const { colors, spacing } = theme;
   const styles = useMemo(() => makeStyles(theme), [theme]);
@@ -95,7 +101,40 @@ export function RoutePlannerScreen({ navigation }: Props) {
   const [deviceLocation, setDeviceLocation] = useState<
     { lat: number; lon: number } | null
   >(null);
+  // Set once an existing route has loaded for editing — distinguishes
+  // "Save Route" creating a brand-new entry from offering to update this
+  // one in place, and which of the two the save button's label reflects.
+  const [editingRideId, setEditingRideId] = useState<string | null>(null);
   const cameraRef = useRef<CameraRef>(null);
+
+  // An imported GPX's dense track has no waypoints of its own to edit — a
+  // planned route's own waypoints are already the exact control points
+  // that produced it, but an import needs Douglas-Peucker simplification
+  // first to get down to a manageable, hand-editable set.
+  useEffect(() => {
+    const editRideId = route.params?.editRideId;
+    if (!editRideId) return;
+    getRide(editRideId)
+      .then((r) => {
+        const source =
+          r.origin === "imported"
+            ? deriveEditableWaypoints(r.points, MAX_EDIT_WAYPOINTS)
+            : r.waypoints;
+        const loaded: PlannerWaypoint[] = source.map((p) => ({
+          lat: p.lat,
+          lon: p.lon,
+          name: "name" in p ? p.name : null,
+        }));
+        setWaypoints(loaded);
+        setEditingRideId(r.id);
+      })
+      .catch((err) => {
+        Alert.alert(
+          "Couldn't load that route",
+          err instanceof Error ? err.message : "Unknown error"
+        );
+      });
+  }, [route.params?.editRideId]);
 
   // getLastKnownPositionAsync() only reads a cached fix and doesn't request
   // one — it resolves to null whenever there's no recent cache, which is
@@ -211,6 +250,22 @@ export function RoutePlannerScreen({ navigation }: Props) {
         lon: w.lon,
         ele: null,
       }));
+
+      if (editingRideId) {
+        const mode = await confirmSaveMode();
+        if (!mode) return;
+        if (mode === "update") {
+          const summary = await updateRoute(
+            editingRideId,
+            waypointList,
+            calculatedRoute.points,
+            calculatedRoute.steps
+          );
+          navigation.replace("RideDetail", { id: summary.id });
+          return;
+        }
+      }
+
       const name = `Planned route — ${formatDate(new Date().toISOString())}`;
       const summary = await savePlannedRoute(
         waypointList,
@@ -415,6 +470,13 @@ export function RoutePlannerScreen({ navigation }: Props) {
                   <Text style={styles.chipText} numberOfLines={1}>
                     {waypointLabel(w, i, waypoints.length)}
                   </Text>
+                  {calculatedRoute && (
+                    <Text style={styles.chipDistance}>
+                      {formatDistance(
+                        distanceAlongRouteMeters(calculatedRoute.points, w)
+                      )}
+                    </Text>
+                  )}
                 </Pressable>
                 <Pressable
                   style={styles.chipRemove}
@@ -442,6 +504,23 @@ export function RoutePlannerScreen({ navigation }: Props) {
       </View>
     </View>
   );
+}
+
+/** Editing an existing route always asks which way to save it — never
+ * defaults to either silently, since overwriting the original in place
+ * isn't something to guess at on the user's behalf. */
+function confirmSaveMode(): Promise<"new" | "update" | null> {
+  return new Promise((resolve) => {
+    Alert.alert(
+      "Save changes",
+      "Save this as a new route, or update the original?",
+      [
+        { text: "Cancel", style: "cancel", onPress: () => resolve(null) },
+        { text: "Save as New", onPress: () => resolve("new") },
+        { text: "Update Original", onPress: () => resolve("update") },
+      ]
+    );
+  });
 }
 
 function makeStyles({ colors, spacing, radii }: Theme) {
@@ -559,7 +638,7 @@ function makeStyles({ colors, spacing, radii }: Theme) {
     },
     chipRow: {
       marginTop: spacing.sm,
-      maxHeight: 44,
+      maxHeight: 58,
     },
     chip: {
       flexDirection: "row",
@@ -576,7 +655,12 @@ function makeStyles({ colors, spacing, radii }: Theme) {
     chipText: {
       color: colors.text,
       fontSize: 13,
-      paddingVertical: 8,
+      paddingTop: 8,
+    },
+    chipDistance: {
+      color: colors.textMuted,
+      fontSize: 11,
+      paddingBottom: 8,
     },
     chipRemove: {
       paddingHorizontal: spacing.sm,

@@ -37,6 +37,24 @@ export function isOffRoute(position: LatLon, routePoints: TrackPoint[]): boolean
   return distanceFromRouteMeters(position, routePoints) > OFF_ROUTE_METERS;
 }
 
+/** Compass bearing from `a` to `b`, in degrees (0 = north, 90 = east) —
+ * used to orient a following navigation camera in the direction of travel,
+ * the same way a driving-mode map rotates to face where you're heading
+ * rather than staying locked to north. */
+export function bearingBetween(a: LatLon, b: LatLon): number {
+  const toRad = (deg: number) => (deg * Math.PI) / 180;
+  const toDeg = (rad: number) => (rad * 180) / Math.PI;
+  const lat1 = toRad(a.lat);
+  const lat2 = toRad(b.lat);
+  const dLon = toRad(b.lon - a.lon);
+
+  const y = Math.sin(dLon) * Math.cos(lat2);
+  const x =
+    Math.cos(lat1) * Math.sin(lat2) -
+    Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+  return (toDeg(Math.atan2(y, x)) + 360) % 360;
+}
+
 /**
  * Finds the next not-yet-announced step close enough to speak now, checking
  * all unspoken steps rather than only the earliest one — a poll every few

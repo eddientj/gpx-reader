@@ -1,12 +1,23 @@
 import { Camera, GeoJSONSource, Layer, Map, Marker } from "@maplibre/maplibre-react-native";
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import { StyleSheet, Text, View } from "react-native";
+import { bearingBetween } from "../lib/navigation";
+import { haversineMeters } from "../lib/stats";
 import type { TrackPoint } from "../lib/types";
 import { useTheme, type Theme } from "../theme/ThemeContext";
 
 // Same free vector tile source as the static MapRoute.
 const STYLE_URL = "https://tiles.openfreemap.org/styles/liberty";
 const FOLLOW_ZOOM = 16;
+// A tilted, heading-oriented camera reads as "navigation mode" the way
+// Google/Apple Maps look while turn-by-turn is active, instead of the flat
+// straight-down "sky view" a plain top-down camera gives.
+const FOLLOW_PITCH = 55;
+// Below this, consecutive GPS fixes are close enough that the bearing
+// between them is mostly noise (a stationary rider's position jitters by a
+// few meters) — recomputing it every poll would spin the camera pointlessly
+// while not actually moving, so the last real heading is kept instead.
+const MIN_BEARING_DISTANCE_METERS = 3;
 
 type Props = {
   points: TrackPoint[];
@@ -26,6 +37,7 @@ type Props = {
 export function LiveMapRoute({ points, fullScreen, referencePoints }: Props) {
   const theme = useTheme();
   const styles = useMemo(() => makeStyles(theme), [theme]);
+  const lastBearingRef = useRef(0);
   const containerStyle = [
     styles.container,
     fullScreen && StyleSheet.absoluteFill,
@@ -51,6 +63,14 @@ export function LiveMapRoute({ points, fullScreen, referencePoints }: Props) {
   // the first point in, there's nothing to draw a line between yet (this
   // was logging a real "Invalid geometry" warning from MapLibre otherwise).
   const hasLine = coordinates.length >= 2;
+
+  if (hasLine) {
+    const prev = points[points.length - 2];
+    const curr = points[points.length - 1];
+    if (haversineMeters(prev, curr) > MIN_BEARING_DISTANCE_METERS) {
+      lastBearingRef.current = bearingBetween(prev, curr);
+    }
+  }
 
   const routeGeoJson: GeoJSON.Feature = useMemo(
     () => ({
@@ -95,7 +115,13 @@ export function LiveMapRoute({ points, fullScreen, referencePoints }: Props) {
   return (
     <View style={containerStyle}>
       <Map mapStyle={STYLE_URL} style={styles.map} logo={false}>
-        <Camera center={last} zoom={FOLLOW_ZOOM} duration={500} />
+        <Camera
+          center={last}
+          zoom={FOLLOW_ZOOM}
+          pitch={FOLLOW_PITCH}
+          bearing={lastBearingRef.current}
+          duration={500}
+        />
         {referenceGeoJson && (
           <GeoJSONSource id="referenceRoute" data={referenceGeoJson}>
             <Layer

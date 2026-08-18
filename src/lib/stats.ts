@@ -87,3 +87,32 @@ export function computeStats(points: TrackPoint[]): RideStats {
     maxEle,
   };
 }
+
+/**
+ * How far into the route (in meters, following the track) a given
+ * lat/lon sits — found by matching it to the nearest point on the dense
+ * track and returning the cumulative distance up to that point, rather
+ * than the waypoint's own straight-line distance from the start (which
+ * would be shorter than the actual riding distance on any route that
+ * isn't a straight line).
+ */
+export function distanceAlongRouteMeters(
+  points: TrackPoint[],
+  target: { lat: number; lon: number }
+): number {
+  if (points.length === 0) return 0;
+  const targetPoint: TrackPoint = { ...target, ele: null, time: null };
+
+  let cumulative = 0;
+  let bestCumulative = 0;
+  let bestDistance = Infinity;
+  for (let i = 0; i < points.length; i++) {
+    if (i > 0) cumulative += haversineMeters(points[i - 1], points[i]);
+    const distance = haversineMeters(points[i], targetPoint);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      bestCumulative = cumulative;
+    }
+  }
+  return bestCumulative;
+}

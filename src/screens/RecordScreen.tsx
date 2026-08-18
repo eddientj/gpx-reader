@@ -1,5 +1,6 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
 import type { BottomTabScreenProps } from "@react-navigation/bottom-tabs";
+import * as Location from "expo-location";
 import * as Speech from "expo-speech";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, StyleSheet, Text, View } from "react-native";
@@ -14,7 +15,7 @@ import {
   speakableInstruction,
 } from "../lib/navigation";
 import { calculateRoute } from "../lib/routing";
-import { computeStats } from "../lib/stats";
+import { computeStats, haversineMeters } from "../lib/stats";
 import { getRide, saveRecordedRide } from "../lib/storage";
 import {
   discardRecording,
@@ -36,6 +37,10 @@ type Props = BottomTabScreenProps<RootTabParamList, "Record">;
 
 const POLL_INTERVAL_MS = 2000;
 const TICK_INTERVAL_MS = 1000;
+// Beyond this, starting Navigate right where you're standing wouldn't
+// actually be riding the planned route — worth a heads-up before recording
+// begins, rather than silently tracking a ride that never touches the plan.
+const FAR_FROM_ROUTE_START_METERS = 500;
 
 export function RecordScreen({ navigation, route }: Props) {
   const theme = useTheme();
@@ -82,7 +87,13 @@ export function RecordScreen({ navigation, route }: Props) {
           err instanceof Error ? err.message : "Unknown error"
         );
       });
-  }, [route.params?.navigateRouteId]);
+    // Depends on the whole params object, not just the extracted id: React
+    // Navigation merges a brand-new params object on every navigate() call,
+    // but re-tapping "Navigate" on the *same* route passes an identical id
+    // string, which wouldn't register as a dependency change on its own —
+    // silently leaving a stale (or already-reset) targetRoute in place from
+    // whatever the last Navigate session was.
+  }, [route.params]);
 
   // Polls the recording file rather than subscribing to location events
   // directly — the background TaskManager task (src/lib/tracking.ts) is the
@@ -169,6 +180,26 @@ export function RecordScreen({ navigation, route }: Props) {
           "Recording will stop if you leave the app or lock your screen. For uninterrupted recording, allow location access \"All the time\" in system settings."
         );
       }
+
+      if (targetRoute && targetRoute.points.length > 0) {
+        const position = await Location.getCurrentPositionAsync().catch(() => null);
+        if (position) {
+          const distance = haversineMeters(
+            {
+              lat: position.coords.latitude,
+              lon: position.coords.longitude,
+              ele: null,
+              time: null,
+            },
+            targetRoute.points[0]
+          );
+          if (distance > FAR_FROM_ROUTE_START_METERS) {
+            const proceed = await confirmFarFromRouteStart(distance);
+            if (!proceed) return;
+          }
+        }
+      }
+
       await startRecording("cycling");
       setRecording(getActiveRecording());
     } catch (err) {
@@ -368,6 +399,19 @@ export function RecordScreen({ navigation, route }: Props) {
       </View>
     </View>
   );
+}
+
+function confirmFarFromRouteStart(distanceMeters: number): Promise<boolean> {
+  return new Promise((resolve) => {
+    Alert.alert(
+      "You're far from this route",
+      `The start is about ${formatDistance(distanceMeters)} away. Head there first, or start tracking from here anyway?`,
+      [
+        { text: "Cancel", style: "cancel", onPress: () => resolve(false) },
+        { text: "Start Anyway", onPress: () => resolve(true) },
+      ]
+    );
+  });
 }
 
 function formatElapsed(ms: number): string {

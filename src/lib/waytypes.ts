@@ -196,7 +196,12 @@ export async function analyzeRoute(points: TrackPoint[]): Promise<RouteAnalysis>
     });
     if (!response.ok) {
       const body = await response.text();
-      console.error(
+      // console.error triggers React Native's dev-mode error banner, which
+      // reads as "something broke" — but a timeout/5xx from Overpass's free,
+      // best-effort public server is an expected, already-handled outcome
+      // (the UI falls back to "Not available"), not a bug. console.warn
+      // still logs it for debugging without alarming the user.
+      console.warn(
         "gpx-reader: Overpass returned",
         response.status,
         body.slice(0, 500)
@@ -205,9 +210,8 @@ export async function analyzeRoute(points: TrackPoint[]): Promise<RouteAnalysis>
     }
     const data: OverpassResponse = await response.json();
     ways = data.elements ?? [];
-    console.log("gpx-reader: Overpass returned", ways.length, "ways");
   } catch (err) {
-    console.error("gpx-reader: Overpass request failed:", err);
+    console.warn("gpx-reader: Overpass request failed:", err);
     return null;
   }
 

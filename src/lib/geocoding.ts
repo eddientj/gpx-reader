@@ -4,6 +4,7 @@
 // usage at 1 request/second, so callers must debounce search input rather
 // than firing on every keystroke.
 const NOMINATIM_URL = "https://nominatim.openstreetmap.org/search";
+const NOMINATIM_REVERSE_URL = "https://nominatim.openstreetmap.org/reverse";
 
 export type PlaceResult = {
   name: string;
@@ -43,5 +44,32 @@ export async function searchPlaces(query: string): Promise<PlaceResult[]> {
       }));
   } catch {
     return [];
+  }
+}
+
+/**
+ * Resolves a coordinate to a human-readable address — used for a waypoint
+ * that has no name of its own (e.g. dropped by tapping the map rather than
+ * picked from search). Returns null on any failure; callers should cache a
+ * successful result rather than re-resolving the same waypoint every time,
+ * both to respect Nominatim's 1 request/second usage policy and because a
+ * waypoint's coordinates never change once saved.
+ */
+export async function reverseGeocode(
+  lat: number,
+  lon: number
+): Promise<string | null> {
+  const url = `${NOMINATIM_REVERSE_URL}?lat=${lat}&lon=${lon}&format=json`;
+
+  try {
+    const response = await fetch(url, {
+      headers: { "User-Agent": "gpx-reader/1.0" },
+    });
+    if (!response.ok) return null;
+
+    const data: NominatimResult = await response.json();
+    return data.display_name ?? null;
+  } catch {
+    return null;
   }
 }

@@ -224,6 +224,45 @@ export async function savePlannedRoute(
   });
 }
 
+/**
+ * Overwrites an existing route's waypoints/track in place (as opposed to
+ * `savePlannedRoute`, which always creates a new entry) — used when editing
+ * a route from `RoutePlannerScreen` and choosing to update rather than
+ * save as a new route. Once edited this way the route is a plan (explicit
+ * waypoints + a recalculated path), not literally the original imported
+ * file anymore, so its origin moves to `"planned"` and its stale
+ * way-type/weather analysis (computed against the old track) is cleared
+ * rather than left showing data for a path that no longer matches.
+ */
+export async function updateRoute(
+  id: string,
+  waypoints: Waypoint[],
+  points: TrackPoint[],
+  navigationSteps: RouteStep[]
+): Promise<RideSummary> {
+  const ride = readRideFile(id);
+  writeRideFile(id, {
+    ...ride,
+    points,
+    waypoints,
+    navigationSteps,
+    routeAnalysis: null,
+    weather: null,
+  });
+
+  const index = readIndex();
+  const existing = index.find((r) => r.id === id);
+  if (!existing) throw new Error(`Ride ${id} not found`);
+
+  const updated: RideSummary = {
+    ...existing,
+    stats: computeStats(points),
+    origin: "planned",
+  };
+  writeIndex(index.map((r) => (r.id === id ? updated : r)));
+  return updated;
+}
+
 export async function listRides(): Promise<RideSummary[]> {
   const index = readIndex();
   return [...index].sort((a, b) => b.importedAt.localeCompare(a.importedAt));
@@ -249,6 +288,16 @@ export async function saveRouteAnalysis(
 ): Promise<void> {
   const ride = readRideFile(id);
   writeRideFile(id, { ...ride, routeAnalysis });
+}
+
+/** Persists resolved waypoint names (e.g. reverse-geocoded addresses) so
+ * they're only ever looked up once per waypoint. */
+export async function saveWaypoints(
+  id: string,
+  waypoints: Waypoint[]
+): Promise<void> {
+  const ride = readRideFile(id);
+  writeRideFile(id, { ...ride, waypoints });
 }
 
 /**
