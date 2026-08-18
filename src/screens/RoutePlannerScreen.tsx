@@ -1,8 +1,15 @@
 import Ionicons from "@expo/vector-icons/Ionicons";
-import { Camera, GeoJSONSource, Layer, Map, Marker } from "@maplibre/maplibre-react-native";
+import {
+  Camera,
+  GeoJSONSource,
+  Layer,
+  Map,
+  Marker,
+  type CameraRef,
+} from "@maplibre/maplibre-react-native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import * as Location from "expo-location";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Alert,
   Pressable,
@@ -27,6 +34,18 @@ type Props = NativeStackScreenProps<RootStackParamList, "RoutePlanner">;
 
 type PlannerWaypoint = { lat: number; lon: number; name: string | null };
 type LngLatEvent = NativeSyntheticEvent<{ lngLat: [number, number] }>;
+
+// A named place keeps its own name; an unnamed tap falls back to marking
+// its role in the route (Start/End) rather than a generic "Waypoint N" —
+// the whole point of asking for this was to make the start and end of the
+// route identifiable at a glance, same as a finished ride's map already
+// does with its green/red start/end markers.
+function waypointLabel(w: PlannerWaypoint, index: number, total: number): string {
+  if (w.name) return w.name;
+  if (index === 0) return "Start";
+  if (index === total - 1 && total > 1) return "End";
+  return `Waypoint ${index + 1}`;
+}
 
 const SEARCH_DEBOUNCE_MS = 500;
 const ROUTE_DEBOUNCE_MS = 600;
@@ -71,29 +90,53 @@ export function RoutePlannerScreen({ navigation }: Props) {
   const [deviceLocation, setDeviceLocation] = useState<
     { lat: number; lon: number } | null
   >(null);
+  const cameraRef = useRef<CameraRef>(null);
+
+  // getLastKnownPositionAsync() only reads a cached fix and doesn't request
+  // one — it resolves to null whenever there's no recent cache, which is
+  // exactly the case right after installing the app or before Record has
+  // ever run once. Falling back to an active getCurrentPositionAsync() call
+  // covers that gap; it can prompt for permission if not already granted,
+  // which is the right tradeoff since the alternative is a broken map.
+  // Shared by the initial mount (below) and the Recenter button, so a
+  // denied/failed first attempt gets another chance if location becomes
+  // available later.
+  function resolveDeviceLocation(): Promise<{ lat: number; lon: number } | null> {
+    return Location.getLastKnownPositionAsync()
+      .then((position) => position ?? Location.getCurrentPositionAsync())
+      .then((position) =>
+        position
+          ? { lat: position.coords.latitude, lon: position.coords.longitude }
+          : null
+      )
+      .catch(() => null);
+  }
 
   // Without this, an empty map (no waypoints yet) falls back to whatever
   // default center/zoom is baked into the style JSON — the whole world, in
-  // OpenFreeMap's case. getLastKnownPositionAsync() only reads a cached fix
-  // and doesn't request one — it resolves to null (leaving the map stuck at
-  // that world view) whenever there's no recent cache, which is exactly the
-  // case right after installing the app or before Record has ever run once.
-  // Falling back to an active getCurrentPositionAsync() call covers that
-  // gap; it can prompt for permission if not already granted, which is the
-  // right tradeoff here since the alternative is a broken-looking map.
+  // OpenFreeMap's case.
   useEffect(() => {
-    Location.getLastKnownPositionAsync()
-      .then((position) => position ?? Location.getCurrentPositionAsync())
-      .then((position) => {
-        if (position) {
-          setDeviceLocation({
-            lat: position.coords.latitude,
-            lon: position.coords.longitude,
-          });
-        }
-      })
-      .catch(() => {});
+    resolveDeviceLocation().then((location) => {
+      if (location) setDeviceLocation(location);
+    });
   }, []);
+
+  async function handleRecenter() {
+    const location = deviceLocation ?? (await resolveDeviceLocation());
+    if (!location) {
+      Alert.alert(
+        "Location unavailable",
+        "Couldn't get your current location. Check that Location Services is turned on."
+      );
+      return;
+    }
+    setDeviceLocation(location);
+    cameraRef.current?.flyTo({
+      center: [location.lon, location.lat],
+      zoom: 15,
+      duration: 600,
+    });
+  }
 
   useEffect(() => {
     if (searchQuery.trim().length === 0) {
@@ -238,7 +281,7 @@ export function RoutePlannerScreen({ navigation }: Props) {
         logo={false}
         onPress={handleMapPress}
       >
-        {camera && <Camera {...camera} duration={500} />}
+        {camera && <Camera ref={cameraRef} {...camera} duration={500} />}
         {routeGeoJson && (
           <GeoJSONSource id="plannedRoute" data={routeGeoJson}>
             <Layer
@@ -249,21 +292,32 @@ export function RoutePlannerScreen({ navigation }: Props) {
             />
           </GeoJSONSource>
         )}
-        {waypoints.map((w, i) => (
-          <Marker
-            key={i}
-            id={`waypoint-${i}`}
-            lngLat={[w.lon, w.lat]}
-            onPress={() => handleMarkerPress(i)}
-          >
-            <View
-              style={[
-                styles.waypointMarker,
-                selectedIndex === i && styles.waypointMarkerSelected,
-              ]}
-            />
-          </Marker>
-        ))}
+        {waypoints.map((w, i) => {
+          // Same convention a finished ride's map already uses: green start,
+          // red end, so the two ends of the route are identifiable at a
+          // glance instead of every stop looking the same.
+          const isStart = i === 0;
+          const isEnd = i === waypoints.length - 1 && waypoints.length > 1;
+          const markerColor = selectedIndex === i
+            ? colors.highlight
+            : isStart
+              ? colors.success
+              : isEnd
+                ? colors.danger
+                : colors.secondary;
+          return (
+            <Marker
+              key={i}
+              id={`waypoint-${i}`}
+              lngLat={[w.lon, w.lat]}
+              onPress={() => handleMarkerPress(i)}
+            >
+              <View
+                style={[styles.waypointMarker, { backgroundColor: markerColor }]}
+              />
+            </Marker>
+          );
+        })}
       </Map>
 
       {waypoints.length === 0 && (
@@ -273,6 +327,13 @@ export function RoutePlannerScreen({ navigation }: Props) {
           </Text>
         </View>
       )}
+
+      <AnimatedPressable
+        style={[styles.recenterButton, { top: insets.top + spacing.sm + 60 }]}
+        onPress={handleRecenter}
+      >
+        <Ionicons name="locate" size={20} color={colors.text} />
+      </AnimatedPressable>
 
       <View style={[styles.topBar, { paddingTop: insets.top + spacing.sm }]}>
         <View style={styles.searchRow}>
@@ -337,7 +398,7 @@ export function RoutePlannerScreen({ navigation }: Props) {
               >
                 <Pressable onPress={() => handleMarkerPress(i)}>
                   <Text style={styles.chipText} numberOfLines={1}>
-                    {w.name ?? `Waypoint ${i + 1}`}
+                    {waypointLabel(w, i, waypoints.length)}
                   </Text>
                 </Pressable>
                 <Pressable
@@ -395,10 +456,16 @@ function makeStyles({ colors, spacing, radii }: Theme) {
       borderRadius: 9,
       borderWidth: 2,
       borderColor: colors.surface,
-      backgroundColor: colors.danger,
     },
-    waypointMarkerSelected: {
-      backgroundColor: colors.highlight,
+    recenterButton: {
+      position: "absolute",
+      right: spacing.md,
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      backgroundColor: `${colors.surface}F2`,
+      alignItems: "center",
+      justifyContent: "center",
     },
     topBar: {
       position: "absolute",
