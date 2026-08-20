@@ -18,7 +18,9 @@
         "monochromeImage": "./assets/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "permissions": ["android.permission.RECEIVE_BOOT_COMPLETED"]
+      "permissions": [
+        "android.permission.RECEIVE_BOOT_COMPLETED"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
@@ -26,7 +28,6 @@
     "plugins": [
       "@maplibre/maplibre-react-native",
       "./plugins/withGpxOpenWith",
-      "./plugins/withAllFilesAccess",
       [
         "expo-location",
         {
@@ -35,7 +36,8 @@
           "isAndroidForegroundServiceEnabled": true,
           "isIosBackgroundLocationEnabled": true
         }
-      ]
+      ],
+      "expo-sharing"
     ]
   }
 }

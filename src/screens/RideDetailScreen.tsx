@@ -3,7 +3,7 @@ import type { BottomTabScreenProps } from "@react-navigation/bottom-tabs";
 import type { CompositeScreenProps } from "@react-navigation/native";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useEffect, useMemo, useState } from "react";
-import { Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
+import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from "react-native";
 import { AnimatedPressable } from "../components/AnimatedPressable";
 import { BreakdownBar } from "../components/BreakdownBar";
 import { ElevationChart } from "../components/ElevationChart";
@@ -17,6 +17,7 @@ import {
   formatElevation,
   formatSpeed,
 } from "../lib/format";
+import { exportRideGpx } from "../lib/export";
 import { reverseGeocode } from "../lib/geocoding";
 import { getRide, saveRouteAnalysis, saveWaypoints, saveWeather } from "../lib/storage";
 import type { RideDetail, RouteAnalysis, Waypoint, WeatherSummary } from "../lib/types";
@@ -51,6 +52,7 @@ export function RideDetailScreen({ route, navigation }: Props) {
   const [analysisLoading, setAnalysisLoading] = useState(false);
   const [weather, setWeather] = useState<WeatherSummary | null>(null);
   const [weatherLoading, setWeatherLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   // This screen is shared by both the Routes and My Rides stacks, and
   // `RecordScreen` reaches it via a cross-tab navigate after Stop & Save —
@@ -77,6 +79,46 @@ export function RideDetailScreen({ route, navigation }: Props) {
       ),
     });
   }, [theme]);
+
+  // Available regardless of origin — a recorded ride, an import, or a
+  // never-ridden plan can all be handed off as a normal GPX file (to Strava,
+  // Komoot, Drive, ...). Kept as its own effect (rather than folded into the
+  // headerLeft one above) since it depends on `ride` having loaded, which
+  // the back button doesn't need to wait for.
+  useEffect(() => {
+    navigation.setOptions({
+      headerRight: () =>
+        ride && (
+          <Pressable
+            style={styles.headerBackButton}
+            onPress={handleExport}
+            disabled={exporting}
+            hitSlop={12}
+          >
+            <Ionicons
+              name="share-outline"
+              size={22}
+              color={theme.colors.text}
+            />
+          </Pressable>
+        ),
+    });
+  }, [theme, ride, exporting]);
+
+  async function handleExport() {
+    if (!ride) return;
+    setExporting(true);
+    try {
+      await exportRideGpx(ride);
+    } catch (err) {
+      Alert.alert(
+        "Couldn't export route",
+        err instanceof Error ? err.message : "Unknown error"
+      );
+    } finally {
+      setExporting(false);
+    }
+  }
 
   useEffect(() => {
     getRide(route.params.id).then((r) => {

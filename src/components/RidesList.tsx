@@ -34,6 +34,14 @@ export function RidesList({ rides, emptyText, onPress, onDelete }: Props) {
       data={rides}
       keyExtractor={(r) => r.id}
       contentContainerStyle={styles.list}
+      ListHeaderComponent={
+        // Swipe-to-delete has no other visual affordance — a real tester
+        // missed it entirely and asked for a "delete" feature that already
+        // existed. Only worth showing once there's something to delete.
+        rides.length > 0 ? (
+          <Text style={styles.hint}>Swipe a row left to delete it</Text>
+        ) : null
+      }
       ListEmptyComponent={<Text style={styles.empty}>{emptyText}</Text>}
       renderItem={({ item }) => (
         <Animated.View entering={FadeIn} exiting={FadeOut} layout={LinearTransition}>
@@ -68,6 +76,12 @@ function makeStyles({ colors }: Theme) {
       color: colors.textMuted,
       marginTop: 40,
       marginHorizontal: 16,
+    },
+    hint: {
+      fontSize: 12,
+      color: colors.textMuted,
+      textAlign: "center",
+      paddingVertical: 8,
     },
     rideRow: {
       backgroundColor: colors.background,

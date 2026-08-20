@@ -347,6 +347,7 @@ export function RoutePlannerScreen({ navigation, route }: Props) {
         mapStyle={MAP_STYLES[styleIndex].style}
         style={StyleSheet.absoluteFill}
         logo={false}
+        compass={false}
         onPress={handleMapPress}
       >
         {camera && <Camera ref={cameraRef} {...camera} duration={500} />}

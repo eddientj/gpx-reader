@@ -62,7 +62,12 @@ export function MapRoute({ points }: Props) {
 
   return (
     <View style={styles.container}>
-      <Map mapStyle={STYLE_URL} style={styles.map} logo={false}>
+      <Map
+        mapStyle={STYLE_URL}
+        style={styles.map}
+        logo={false}
+        compass={false}
+      >
         {hasLine && !boundsTooSmall ? (
           <Camera
             initialViewState={{

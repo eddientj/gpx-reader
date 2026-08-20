@@ -65,7 +65,7 @@ npx expo run:android
 
 `npx expo prebuild` regenerates the native `android/` project from `app.json` and the config plugins in `plugins/` — it isn't committed, and needs to be rerun after pulling changes that touch native config.
 
-See [BUILD_LOG.md](BUILD_LOG.md) for the development history and notable technical decisions made along the way.
+See [BUILD_LOG.md](BUILD_LOG.md) for the development history and notable technical decisions made along the way, and [BACKLOG.md](BACKLOG.md) for what's deliberately deferred.
 
 ## License
 

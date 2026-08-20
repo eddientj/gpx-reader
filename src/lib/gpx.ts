@@ -86,3 +86,58 @@ export function parseGpx(xml: string): ParsedGpx {
 
   return { name, points, waypoints, description };
 }
+
+function escapeXml(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+}
+
+function trkptXml(point: TrackPoint): string {
+  const inner = [
+    point.ele !== null ? `<ele>${point.ele}</ele>` : "",
+    point.time !== null ? `<time>${escapeXml(point.time)}</time>` : "",
+  ]
+    .filter(Boolean)
+    .join("");
+  return `<trkpt lat="${point.lat}" lon="${point.lon}">${inner}</trkpt>`;
+}
+
+function wptXml(waypoint: Waypoint): string {
+  const inner = [
+    waypoint.ele !== null ? `<ele>${waypoint.ele}</ele>` : "",
+    waypoint.name !== null ? `<name>${escapeXml(waypoint.name)}</name>` : "",
+  ]
+    .filter(Boolean)
+    .join("");
+  return `<wpt lat="${waypoint.lat}" lon="${waypoint.lon}">${inner}</wpt>`;
+}
+
+/**
+ * Serializes a ride back into a valid GPX 1.1 file — the inverse of
+ * `parseGpx`, so a route exported here re-imports cleanly into this app or
+ * any other GPX-reading tool (Strava, Komoot, Garmin, ...). Waypoints are
+ * written before the track, matching where `parseGpx` looks for `wpt`
+ * elements (order-independent per the GPX schema, but matching common
+ * exports makes a byte-diff against another app's file easier to read).
+ */
+export function serializeGpx(
+  name: string,
+  points: TrackPoint[],
+  waypoints: Waypoint[]
+): string {
+  const waypointsXml = waypoints.map(wptXml).join("");
+  const trackPointsXml = points.map(trkptXml).join("");
+
+  return (
+    `<?xml version="1.0" encoding="UTF-8"?>` +
+    `<gpx version="1.1" creator="gpx-reader" xmlns="http://www.topografix.com/GPX/1/1">` +
+    `<metadata><name>${escapeXml(name)}</name></metadata>` +
+    waypointsXml +
+    `<trk><name>${escapeXml(name)}</name><trkseg>${trackPointsXml}</trkseg></trk>` +
+    `</gpx>`
+  );
+}

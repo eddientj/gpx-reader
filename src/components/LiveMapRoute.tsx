@@ -114,7 +114,17 @@ export function LiveMapRoute({ points, fullScreen, referencePoints }: Props) {
 
   return (
     <View style={containerStyle}>
-      <Map mapStyle={STYLE_URL} style={styles.map} logo={false}>
+      {/* The native compass control fades in as soon as the camera rotates
+          away from north, which happens constantly here since the camera
+          bearing follows the direction of travel — sitting at its default
+          top-right position, directly under RecordScreen's mute button.
+          Nothing in this app is wired to a "reset to north" tap anyway. */}
+      <Map
+        mapStyle={STYLE_URL}
+        style={styles.map}
+        logo={false}
+        compass={false}
+      >
         <Camera
           center={last}
           zoom={FOLLOW_ZOOM}

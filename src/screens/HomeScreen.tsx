@@ -2,18 +2,12 @@ import type { NativeStackScreenProps } from "@react-navigation/native-stack";
 import { useFocusEffect } from "@react-navigation/native";
 import { File } from "expo-file-system";
 import { useCallback, useMemo, useState } from "react";
-import { Alert, FlatList, Modal, Pressable, StyleSheet, Text, View } from "react-native";
+import { Alert, StyleSheet, Text, View } from "react-native";
 import { AnimatedPressable } from "../components/AnimatedPressable";
 import { RidesList } from "../components/RidesList";
 import { useIncomingGpx } from "../hooks/useIncomingGpx";
-import { formatDate, rideNameFromFileName } from "../lib/format";
-import type { GpxFileEntry } from "../lib/picker";
-import {
-  hasAllFilesAccess,
-  openAllFilesAccessSettings,
-  pickGpxFile,
-  searchGpxFiles,
-} from "../lib/picker";
+import { rideNameFromFileName } from "../lib/format";
+import { pickGpxFile } from "../lib/picker";
 import { deleteRide, listRides, saveRide } from "../lib/storage";
 import type { RideSummary } from "../lib/types";
 import { prefetchWeather } from "../lib/weather";
@@ -27,10 +21,6 @@ export function HomeScreen({ navigation }: Props) {
   const styles = useMemo(() => makeStyles(theme), [theme]);
   const [rides, setRides] = useState<RideSummary[]>([]);
   const [importing, setImporting] = useState(false);
-  const [searching, setSearching] = useState(false);
-  const [searchResults, setSearchResults] = useState<GpxFileEntry[] | null>(
-    null
-  );
 
   const refresh = useCallback(() => {
     listRides()
@@ -81,61 +71,14 @@ export function HomeScreen({ navigation }: Props) {
     }, [])
   );
 
-  // Primary import path: an instant MediaStore lookup, so the user lands on
-  // a flat list of every GPX file on the device immediately — no folder
-  // navigation, which Android's system picker can't do reliably (its MIME
-  // filter is well-documented as inconsistent while browsing folders,
-  // sometimes hiding real matches that only its own search finds).
+  // Straight to the system file picker (ACTION_OPEN_DOCUMENT, opens to a
+  // "Recent" view) — no instant-search step first. That search depended on
+  // MediaStore having indexed the file already, which lagged behind files
+  // just placed on the device (e.g. via adb, or some file managers copying
+  // directly) often enough that it read as broken. The manual picker reads
+  // the real filesystem through the OS directly, so it has no such lag, and
+  // needs no storage permission either.
   async function handleImport() {
-    setSearching(true);
-    try {
-      const found = await searchGpxFiles();
-      // Already-imported files stay in the search index forever — without
-      // this, re-scanning just offers the same routes to import again.
-      const alreadyImported = new Set(
-        rides
-          .map((r) => r.sourceFileName?.toLowerCase())
-          .filter((name): name is string => !!name)
-      );
-      const results = found.filter(
-        (entry) => !alreadyImported.has(entry.name.toLowerCase())
-      );
-
-      if (results.length > 0) {
-        setSearchResults(results);
-      } else if (found.length > 0) {
-        Alert.alert(
-          "Nothing new to import",
-          "Every GPX file found is already in your route list."
-        );
-      } else if (!hasAllFilesAccess()) {
-        Alert.alert(
-          "Can't see files from other apps yet",
-          "Without \"All files access\", this can only find GPX files this app saved itself. Grant it once and every GPX file on your device — from WhatsApp, Drive, wherever — will show up here instantly.",
-          [
-            { text: "Not now", style: "cancel" },
-            { text: "Grant access", onPress: openAllFilesAccessSettings },
-          ]
-        );
-      } else {
-        Alert.alert(
-          "No GPX files found",
-          "The device's file index doesn't have anything ending in .gpx. Try \"Browse files manually\" instead."
-        );
-      }
-    } catch (err) {
-      Alert.alert(
-        "Search failed",
-        err instanceof Error ? err.message : "Unknown error"
-      );
-    } finally {
-      setSearching(false);
-    }
-  }
-
-  // Fallback for the rare file MediaStore hasn't indexed — opens the system
-  // picker directly instead.
-  async function handleBrowse() {
     try {
       const uri = await pickGpxFile();
       if (!uri) return;
@@ -148,12 +91,6 @@ export function HomeScreen({ navigation }: Props) {
         err instanceof Error ? err.message : "Unknown error"
       );
     }
-  }
-
-  async function handleImportFound(entry: GpxFileEntry) {
-    setSearchResults(null);
-    const xml = await new File(entry.uri).text();
-    await importXml(entry.name, xml);
   }
 
   async function handleDelete(id: string) {
@@ -170,15 +107,12 @@ export function HomeScreen({ navigation }: Props) {
     <View style={styles.container}>
       <View style={styles.actions}>
         <AnimatedPressable
-          style={[
-            styles.button,
-            (importing || searching) && styles.buttonDisabled,
-          ]}
+          style={[styles.button, importing && styles.buttonDisabled]}
           onPress={handleImport}
-          disabled={importing || searching}
+          disabled={importing}
         >
           <Text style={styles.buttonText}>
-            {importing ? "Importing…" : searching ? "Searching…" : "Import GPX"}
+            {importing ? "Importing…" : "Import GPX"}
           </Text>
         </AnimatedPressable>
         <AnimatedPressable
@@ -188,55 +122,12 @@ export function HomeScreen({ navigation }: Props) {
           <Text style={styles.buttonText}>Plan a Route</Text>
         </AnimatedPressable>
       </View>
-      <Pressable style={styles.scanLink} onPress={handleBrowse}>
-        <Text style={styles.scanLinkText}>
-          Can't find it here? Browse files manually
-        </Text>
-      </Pressable>
-
       <RidesList
         rides={routes}
         emptyText="No routes yet. Import a GPX file or plan one to get started."
         onPress={(id) => navigation.navigate("RideDetail", { id })}
         onDelete={handleDelete}
       />
-
-      <Modal
-        visible={searchResults !== null}
-        transparent
-        animationType="slide"
-        onRequestClose={() => setSearchResults(null)}
-      >
-        <View style={styles.modalOverlay}>
-          <View style={styles.resultsCard}>
-            <Text style={styles.resultsTitle}>
-              Found {searchResults?.length ?? 0} GPX file
-              {searchResults?.length === 1 ? "" : "s"}
-            </Text>
-            <FlatList
-              data={searchResults ?? []}
-              keyExtractor={(entry) => entry.uri}
-              renderItem={({ item }) => (
-                <Pressable
-                  style={styles.resultRow}
-                  onPress={() => handleImportFound(item)}
-                >
-                  <Text style={styles.resultName}>{item.name}</Text>
-                  <Text style={styles.resultPath} numberOfLines={1}>
-                    {formatDate(new Date(item.modifiedAt).toISOString())}
-                  </Text>
-                </Pressable>
-              )}
-            />
-            <Pressable
-              style={styles.cancelButton}
-              onPress={() => setSearchResults(null)}
-            >
-              <Text style={styles.cancelButtonText}>Close</Text>
-            </Pressable>
-          </View>
-        </View>
-      </Modal>
     </View>
   );
 }
@@ -265,60 +156,6 @@ function makeStyles({ colors, radii }: Theme) {
     },
     buttonText: {
       color: colors.primaryText,
-      fontWeight: "600",
-    },
-    scanLink: {
-      paddingHorizontal: 16,
-      paddingTop: 12,
-      paddingBottom: 4,
-    },
-    scanLinkText: {
-      color: colors.highlight,
-      fontSize: 13,
-      textAlign: "center",
-    },
-    modalOverlay: {
-      flex: 1,
-      backgroundColor: "#00000088",
-      justifyContent: "center",
-      alignItems: "center",
-      padding: 24,
-    },
-    resultsCard: {
-      backgroundColor: colors.background,
-      borderRadius: radii.lg,
-      padding: 20,
-      width: "100%",
-      maxHeight: "80%",
-    },
-    resultsTitle: {
-      fontSize: 16,
-      fontWeight: "700",
-      marginBottom: 12,
-      color: colors.text,
-    },
-    resultRow: {
-      paddingVertical: 12,
-      borderBottomWidth: StyleSheet.hairlineWidth,
-      borderBottomColor: colors.border,
-    },
-    resultName: {
-      fontSize: 15,
-      fontWeight: "600",
-      color: colors.text,
-    },
-    resultPath: {
-      fontSize: 12,
-      color: colors.textMuted,
-      marginTop: 2,
-    },
-    cancelButton: {
-      marginTop: 12,
-      paddingVertical: 10,
-      alignItems: "center",
-    },
-    cancelButtonText: {
-      color: colors.highlight,
       fontWeight: "600",
     },
   });
