@@ -1,5 +1,5 @@
 import { haversineMeters } from "./stats";
-import type { BreakdownEntry, RouteAnalysis, TrackPoint } from "./types";
+import type { BreakdownEntry, RouteAnalysis, RouteSegment, TrackPoint } from "./types";
 
 // GPX files don't carry road/trail classification — the only way to know a
 // route was 40% cycleway, 30% gravel, etc. is to match its coordinates
@@ -51,22 +51,46 @@ function bucketHighway(highway: string | undefined): string {
   return "Other";
 }
 
-function bucketSurface(surface: string | undefined): string {
-  if (!surface) return "Unknown";
-  if (
-    ["paved", "asphalt", "concrete", "concrete:plates", "paving_stones"].includes(
-      surface
-    )
-  ) {
-    return "Paved";
+// OSM's surface tag is optional, and mappers routinely skip it for road
+// types where pavement is the default assumption rather than something
+// worth recording — leaving "surface: Unknown" dominant even on routes that
+// are almost entirely paved. When there's no explicit tag, these highway
+// types are paved by convention strongly enough to infer it rather than
+// report a technically-true but practically-useless "Unknown".
+const PAVED_IMPLIED_HIGHWAYS = new Set([
+  "primary",
+  "secondary",
+  "tertiary",
+  "trunk",
+  "residential",
+  "living_street",
+  "service",
+  "unclassified",
+  "cycleway",
+]);
+
+function bucketSurface(
+  surface: string | undefined,
+  highway: string | undefined
+): string {
+  if (surface) {
+    if (
+      ["paved", "asphalt", "concrete", "concrete:plates", "paving_stones"].includes(
+        surface
+      )
+    ) {
+      return "Paved";
+    }
+    if (["unpaved", "compacted", "fine_gravel", "gravel"].includes(surface)) {
+      return "Gravel";
+    }
+    if (["dirt", "earth", "ground", "grass", "mud", "sand"].includes(surface)) {
+      return "Unpaved";
+    }
+    return "Other";
   }
-  if (["unpaved", "compacted", "fine_gravel", "gravel"].includes(surface)) {
-    return "Gravel";
-  }
-  if (["dirt", "earth", "ground", "grass", "mud", "sand"].includes(surface)) {
-    return "Unpaved";
-  }
-  return "Other";
+  if (highway && PAVED_IMPLIED_HIGHWAYS.has(highway)) return "Paved";
+  return "Unknown";
 }
 
 function tally(counts: Map<string, number>, label: string): void {
@@ -92,6 +116,30 @@ function downsample(points: TrackPoint[], spacingMeters: number): TrackPoint[] {
     if (i > 0) distanceSinceLast += haversineMeters(points[i - 1], points[i]);
     if (distanceSinceLast >= spacingMeters) {
       sampled.push(points[i]);
+      distanceSinceLast = 0;
+    }
+  }
+  return sampled;
+}
+
+/** Same sampling as `downsample`, but keeps each sample's cumulative
+ * distance from the start — the elevation chart needs that to place a
+ * classification sample against its own (much denser) set of points. */
+function downsampleWithDistance(
+  points: TrackPoint[],
+  spacingMeters: number
+): { point: TrackPoint; distanceMeters: number }[] {
+  const sampled: { point: TrackPoint; distanceMeters: number }[] = [];
+  let cumulative = 0;
+  let distanceSinceLast = spacingMeters; // force-include the first point
+  for (let i = 0; i < points.length; i++) {
+    if (i > 0) {
+      const segment = haversineMeters(points[i - 1], points[i]);
+      cumulative += segment;
+      distanceSinceLast += segment;
+    }
+    if (distanceSinceLast >= spacingMeters) {
+      sampled.push({ point: points[i], distanceMeters: cumulative });
       distanceSinceLast = 0;
     }
   }
@@ -219,16 +267,23 @@ export async function analyzeRoute(points: TrackPoint[]): Promise<RouteAnalysis>
 
   const highwayCounts = new Map<string, number>();
   const surfaceCounts = new Map<string, number>();
+  const segments: RouteSegment[] = [];
 
-  for (const point of downsample(points, TALLY_SPACING_METERS)) {
+  for (const { point, distanceMeters } of downsampleWithDistance(
+    points,
+    TALLY_SPACING_METERS
+  )) {
     const tags = nearestWayTags(point, ways);
-    tally(highwayCounts, bucketHighway(tags?.highway));
-    tally(surfaceCounts, bucketSurface(tags?.surface));
+    const wayType = bucketHighway(tags?.highway);
+    const surface = bucketSurface(tags?.surface, tags?.highway);
+    tally(highwayCounts, wayType);
+    tally(surfaceCounts, surface);
+    segments.push({ distanceMeters, wayType, surface });
   }
 
   const wayTypes = toPercentBreakdown(highwayCounts);
   const surfaces = toPercentBreakdown(surfaceCounts);
   if (wayTypes.length === 0 && surfaces.length === 0) return null;
 
-  return { wayTypes, surfaces };
+  return { wayTypes, surfaces, segments };
 }

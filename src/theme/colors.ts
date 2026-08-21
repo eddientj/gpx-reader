@@ -31,7 +31,11 @@ export const lightColors: ThemeColors = {
   success: "#3FA35E",
   text: "#20301F",
   textMuted: "#5B6B57",
-  chartRamp: ["#2F6F4E", "#8FAF7B", "#5B8FA8", "#C9BFA0", "#DCD5C4"],
+  // Five genuinely distinct hues (green/blue/amber/plum/gray) rather than
+  // shades of the same green — the previous ramp's last two entries were
+  // both muted beige, nearly indistinguishable on a thin chart line even
+  // though they read fine as wide bar segments.
+  chartRamp: ["#2F6F4E", "#3E7CB1", "#C9962C", "#8B5FA3", "#6B7280"],
 };
 
 export const darkColors: ThemeColors = {
@@ -48,5 +52,8 @@ export const darkColors: ThemeColors = {
   success: "#6FCB8E",
   text: "#EAEFE6",
   textMuted: "#9BAA95",
-  chartRamp: ["#5FBE84", "#7FA06C", "#7FB2CC", "#4A5A4E", "#33453A"],
+  // Same fix as the light ramp — the old last two entries were both dark
+  // green-gray, one of them identical to `border`, so a category using it
+  // was nearly invisible against the app's own chrome.
+  chartRamp: ["#5FBE84", "#6FB0E0", "#E0A458", "#B78FD1", "#9AA5A0"],
 };

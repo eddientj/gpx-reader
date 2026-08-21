@@ -16,14 +16,6 @@ Not designed at all yet — the app has no user model or login of any kind. Need
 
 Currently one live map source everywhere (OpenFreeMap's "liberty" vector style), plus a satellite raster layer (Esri World Imagery) as an alternate style in the route planner only. No offline capability exists — every map view needs a live connection. True offline maps (pre-downloading/caching tile regions, managing that storage, MapLibre's offline-region APIs) would be a substantial standalone feature, not a small addition.
 
-## Ride list — richer row info
-
-`RidesList.tsx` rows currently show name, date (`formatDate`, day-level only — no time of day), distance, duration, and elevation gain/loss. Add the actual ride time (not just the date), and reassess what else is worth surfacing at a glance in the list versus reserved for the detail screen — balance against the lean-UI principle above rather than just adding every stat available.
-
-## Interactive, more descriptive ride detail UI
-
-Current state is plain and non-interactive: `ElevationChart.tsx` is a static SVG path (line + fill) with no axis labels, no units shown on the chart itself, and no touch handling at all — "just a graph that doesn't really make sense" per direct feedback. Wants: touch/drag interaction on the chart so tapping or dragging along it surfaces the actual distance/elevation values at that point (not just a shape), and a broader look at making the whole ride detail screen feel more descriptive and appealing rather than a stack of plain stat cards.
-
 ## Merge full performance data from another app's GPX export
 
 Originally scoped as heart-rate-only; broadened — if this gets built, target a **full performance breakdown**: heart rate, power/wattage, cadence, and pace, not heart rate alone. Combine this app's GPX export with a GPX file exported from Strava, Samsung Health, or similar, pulling in whatever performance data those apps record but this app has no sensor access to capture itself.

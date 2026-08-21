@@ -266,7 +266,7 @@ export function RideDetailScreen({ route, navigation }: Props) {
       )}
 
       <Text style={styles.sectionTitle}>Elevation</Text>
-      <ElevationChart points={ride.points} />
+      <ElevationChart points={ride.points} analysis={analysis} />
 
       <Text style={styles.sectionTitle}>Way types</Text>
       {analysisLoading ? (

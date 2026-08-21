@@ -46,9 +46,19 @@ export type BreakdownEntry = {
   percent: number;
 };
 
+/** One classification sample along the route, at the same spacing the
+ * breakdown percentages themselves were tallied from — lets the elevation
+ * chart color itself by way type/surface without a second Overpass pass. */
+export type RouteSegment = {
+  distanceMeters: number;
+  wayType: string;
+  surface: string;
+};
+
 export type RouteAnalysis = {
   wayTypes: BreakdownEntry[];
   surfaces: BreakdownEntry[];
+  segments: RouteSegment[];
 } | null;
 
 export type WeatherSummary = {

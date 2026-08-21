@@ -10,6 +10,7 @@ import {
   formatDistance,
   formatDurationOrEstimate,
   formatElevation,
+  formatTime,
 } from "../lib/format";
 import type { RideSummary } from "../lib/types";
 import { useTheme, type Theme } from "../theme/ThemeContext";
@@ -43,25 +44,37 @@ export function RidesList({ rides, emptyText, onPress, onDelete }: Props) {
         ) : null
       }
       ListEmptyComponent={<Text style={styles.empty}>{emptyText}</Text>}
-      renderItem={({ item }) => (
-        <Animated.View entering={FadeIn} exiting={FadeOut} layout={LinearTransition}>
-          <SwipeableRow onDelete={() => onDelete(item.id)}>
-            <Pressable style={styles.rideRow} onPress={() => onPress(item.id)}>
-              <Text style={styles.rideName}>{item.name}</Text>
-              <Text style={styles.rideMeta}>{formatDate(item.importedAt)}</Text>
-              <Text style={styles.rideStats}>
-                {formatDistance(item.stats.distanceMeters)} ·{" "}
-                {formatDurationOrEstimate(
-                  item.stats.durationSeconds,
-                  item.stats.distanceMeters
-                )}{" "}
-                · ↑{formatElevation(item.stats.elevationGainMeters)} ↓
-                {formatElevation(item.stats.elevationLossMeters)}
-              </Text>
-            </Pressable>
-          </SwipeableRow>
-        </Animated.View>
-      )}
+      renderItem={({ item }) => {
+        // importedAt is a reasonable proxy for "when this happened" for a
+        // recorded ride (saved right after stopping) — but for an import or
+        // a plan it's only ever "when this was added to the app," which
+        // showing a time of day for would misleadingly suggest it's when
+        // the ride itself took place.
+        const meta =
+          item.origin === "recorded"
+            ? `${formatDate(item.importedAt)} · ${formatTime(item.importedAt)}`
+            : formatDate(item.importedAt);
+
+        return (
+          <Animated.View entering={FadeIn} exiting={FadeOut} layout={LinearTransition}>
+            <SwipeableRow onDelete={() => onDelete(item.id)}>
+              <Pressable style={styles.rideRow} onPress={() => onPress(item.id)}>
+                <Text style={styles.rideName}>{item.name}</Text>
+                <Text style={styles.rideMeta}>{meta}</Text>
+                <Text style={styles.rideStats}>
+                  {formatDistance(item.stats.distanceMeters)} ·{" "}
+                  {formatDurationOrEstimate(
+                    item.stats.durationSeconds,
+                    item.stats.distanceMeters
+                  )}{" "}
+                  · ↑{formatElevation(item.stats.elevationGainMeters)} ↓
+                  {formatElevation(item.stats.elevationLossMeters)}
+                </Text>
+              </Pressable>
+            </SwipeableRow>
+          </Animated.View>
+        );
+      }}
     />
   );
 }

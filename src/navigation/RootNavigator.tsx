@@ -127,6 +127,11 @@ export function RootNavigator() {
           options={{
             headerShown: false,
             title: "Routes",
+            // Without this, leaving a drilled-into screen (ride detail,
+            // route planner) and coming back to this tab later resumes
+            // exactly where you left off rather than the route list — easy
+            // to mistake for a stuck/broken back button.
+            popToTopOnBlur: true,
             tabBarIcon: ({ color, size, focused }) => (
               <Ionicons
                 name={focused ? "map" : "map-outline"}
@@ -142,6 +147,7 @@ export function RootNavigator() {
           options={{
             headerShown: false,
             title: "My Rides",
+            popToTopOnBlur: true,
             tabBarIcon: ({ color, size, focused }) => (
               <Ionicons
                 name={focused ? "bicycle" : "bicycle-outline"}
