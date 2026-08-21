@@ -2,6 +2,12 @@
 
 A running log of how this app was built, in the order it happened. Kept because a handful of the decisions below (especially the free-service workarounds) aren't obvious from the code alone.
 
+## 2026-08-22 — Elevation chart legibility pass; Strava reference screenshots scoped into the backlog
+
+- **Elevation chart's touch feedback rebuilt.** Direct feedback: the touched-point readout was too small to actually read while dragging. `ElevationChart.tsx` now shows a floating tooltip (big bold value + smaller distance sub-value, rounded card with a shadow) positioned right above the touched point, computed from the SVG's own coordinate space rather than SVG `<Text>` (plain React Native text gives real control over size/weight that's simpler to get right outside the SVG). Deliberately neutral-colored (surface/text tokens), not the theme's green primary — a small, high-attention floating label is exactly where low-contrast green reads as "hard to see." The always-visible Min/Max stats below the chart also got a real visual upgrade (uppercase muted labels, large bold values) instead of one small inline-text row.
+- **A large batch of Strava reference screenshots (two rounds) scoped into `BACKLOG.md`**, not built yet: full-screen map + slide-up detail sheet (the big structural piece, needs a bottom-sheet library decision), a whole-app black+green theme, Android Health Connect integration (Samsung Health data — Calories, Heart Rate Zones), and a long tail of further-out analytics (lap breakdown, 3D flyover replay, a "Results" section bundling Best Efforts/Segments/Achievements, Goals, Performance Predictions). Segments and group-ride features noted as inherently social/crowd-sourced — don't translate to this single-user app as-is.
+- **Attempted, then reverted: Moving Time / Elapsed Time / Fastest Split stats.** Built `movingTimeSeconds` (speed-threshold based)/`avgMovingSpeedKmh`/`fastestSplitKmh` (sliding 1km window) into `stats.ts`, verified the arithmetic against real timestamped data, but it didn't match what was actually wanted — reverted (`stats.ts`, `storage.ts`, `types.ts`, `RideDetailScreen.tsx` all back to their prior state) rather than ship something that missed the mark. Left as a backlog item pending a proper spec.
+
 ## 2026-08-21 (later) — Backlog items: richer ride list, interactive ride detail, way-type/surface coloring
 
 Working through `BACKLOG.md` in priority order.

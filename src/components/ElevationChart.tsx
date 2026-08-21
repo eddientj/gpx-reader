@@ -18,6 +18,11 @@ const VIEW_HEIGHT = 170;
 // Just enough room for the touch marker's circle (radius 5) not to clip
 // against the top/bottom edge when a point sits at the exact min/max.
 const PADDING = 6;
+// The floating tooltip's own footprint — fixed rather than measured, so its
+// position can be computed and clamped in one pass instead of waiting a
+// render for onLayout.
+const TOOLTIP_WIDTH = 132;
+const TOOLTIP_HEIGHT = 54;
 
 type ColorMode = "surface" | "wayType";
 
@@ -198,6 +203,21 @@ export function ElevationChart({ points, analysis }: Props) {
     );
   }
 
+  // The SVG's height is a fixed pixel value (not "100%"), so the chart's own
+  // y-coordinates already are screen pixels — only x needs rescaling, since
+  // width="100%" stretches the SVG horizontally to whatever this container
+  // actually measures.
+  const touchedScreenX =
+    touchedIndex !== null ? (chart.xs[touchedIndex] / VIEW_WIDTH) * containerWidth : 0;
+  const tooltipLeft = Math.max(
+    0,
+    Math.min(containerWidth - TOOLTIP_WIDTH, touchedScreenX - TOOLTIP_WIDTH / 2)
+  );
+  const tooltipTop =
+    touchedIndex !== null
+      ? Math.max(0, chart.ys[touchedIndex] - TOOLTIP_HEIGHT - 10)
+      : 0;
+
   return (
     <View>
       {colorRuns && (
@@ -220,76 +240,97 @@ export function ElevationChart({ points, analysis }: Props) {
           ))}
         </View>
       )}
-      <GestureDetector gesture={pan}>
-        <Animated.View
-          style={[styles.chartOrigin, chartStyle]}
-          onLayout={handleLayout}
-        >
-          <Svg
-            width="100%"
-            height={VIEW_HEIGHT}
-            viewBox={`0 0 ${VIEW_WIDTH} ${VIEW_HEIGHT}`}
-            preserveAspectRatio="none"
+      <View style={styles.chartArea}>
+        <GestureDetector gesture={pan}>
+          <Animated.View
+            style={[styles.chartOrigin, chartStyle]}
+            onLayout={handleLayout}
           >
-            <Path d={chart.fillPath} fill={`${theme.colors.primary}22`} stroke="none" />
-            {colorRuns ? (
-              colorRuns.map((run) => (
+            <Svg
+              width="100%"
+              height={VIEW_HEIGHT}
+              viewBox={`0 0 ${VIEW_WIDTH} ${VIEW_HEIGHT}`}
+              preserveAspectRatio="none"
+            >
+              <Path d={chart.fillPath} fill={`${theme.colors.primary}22`} stroke="none" />
+              {colorRuns ? (
+                colorRuns.map((run) => (
+                  <Path
+                    key={`${run.startIndex}-${run.label}`}
+                    d={`M ${chart.xs
+                      .slice(run.startIndex, run.endIndex + 1)
+                      .map(
+                        (x, i) =>
+                          `${x.toFixed(1)},${chart.ys[run.startIndex + i].toFixed(1)}`
+                      )
+                      .join(" L ")}`}
+                    fill="none"
+                    stroke={run.color}
+                    strokeWidth={2}
+                    strokeLinecap="round"
+                  />
+                ))
+              ) : (
                 <Path
-                  key={`${run.startIndex}-${run.label}`}
-                  d={`M ${chart.xs
-                    .slice(run.startIndex, run.endIndex + 1)
-                    .map((x, i) => `${x.toFixed(1)},${chart.ys[run.startIndex + i].toFixed(1)}`)
-                    .join(" L ")}`}
+                  d={chart.linePath}
                   fill="none"
-                  stroke={run.color}
-                  strokeWidth={2}
-                  strokeLinecap="round"
-                />
-              ))
-            ) : (
-              <Path
-                d={chart.linePath}
-                fill="none"
-                stroke={theme.colors.primary}
-                strokeWidth={2}
-              />
-            )}
-            {touchedIndex !== null && (
-              <>
-                <Line
-                  x1={chart.xs[touchedIndex]}
-                  x2={chart.xs[touchedIndex]}
-                  y1={PADDING}
-                  y2={VIEW_HEIGHT - PADDING}
-                  stroke={theme.colors.textMuted}
-                  strokeWidth={1}
-                  strokeDasharray={[3, 3]}
-                />
-                <Circle
-                  cx={chart.xs[touchedIndex]}
-                  cy={chart.ys[touchedIndex]}
-                  r={5}
-                  fill={theme.colors.primary}
-                  stroke={theme.colors.background}
+                  stroke={theme.colors.primary}
                   strokeWidth={2}
                 />
-              </>
-            )}
-          </Svg>
-        </Animated.View>
-      </GestureDetector>
-      <View style={styles.labels}>
-        {touchedIndex !== null ? (
-          <Text style={styles.touchedText}>
-            {formatDistance(chart.distances[touchedIndex])} ·{" "}
-            {formatElevation(chart.elevations[touchedIndex])}
-          </Text>
-        ) : (
-          <>
-            <Text style={styles.labelText}>Min {Math.round(chart.minEle)} m</Text>
-            <Text style={styles.labelText}>Max {Math.round(chart.maxEle)} m</Text>
-          </>
+              )}
+              {touchedIndex !== null && (
+                <>
+                  <Line
+                    x1={chart.xs[touchedIndex]}
+                    x2={chart.xs[touchedIndex]}
+                    y1={PADDING}
+                    y2={VIEW_HEIGHT - PADDING}
+                    stroke={theme.colors.textMuted}
+                    strokeWidth={1}
+                    strokeDasharray={[3, 3]}
+                  />
+                  <Circle
+                    cx={chart.xs[touchedIndex]}
+                    cy={chart.ys[touchedIndex]}
+                    r={6}
+                    fill={theme.colors.text}
+                    stroke={theme.colors.background}
+                    strokeWidth={2}
+                  />
+                </>
+              )}
+            </Svg>
+          </Animated.View>
+        </GestureDetector>
+        {/* A plain View rather than SVG text — needs to be legible at a
+            glance while dragging, which wants real font weight/contrast
+            control that's simpler to get right outside the SVG. Deliberately
+            neutral (surface + text tokens), not the theme's green primary —
+            a floating label is exactly the kind of small, high-attention
+            element where low-contrast green reads as "hard to see". */}
+        {touchedIndex !== null && (
+          <View
+            style={[styles.tooltip, { left: tooltipLeft, top: tooltipTop }]}
+            pointerEvents="none"
+          >
+            <Text style={styles.tooltipValue}>
+              {formatElevation(chart.elevations[touchedIndex])}
+            </Text>
+            <Text style={styles.tooltipSubvalue}>
+              {formatDistance(chart.distances[touchedIndex])}
+            </Text>
+          </View>
         )}
+      </View>
+      <View style={styles.statsRow}>
+        <View style={styles.statCell}>
+          <Text style={styles.statLabel}>Min</Text>
+          <Text style={styles.statValue}>{Math.round(chart.minEle)} m</Text>
+        </View>
+        <View style={[styles.statCell, styles.statCellEnd]}>
+          <Text style={styles.statLabel}>Max</Text>
+          <Text style={styles.statValue}>{Math.round(chart.maxEle)} m</Text>
+        </View>
       </View>
     </View>
   );
@@ -299,6 +340,7 @@ function makeStyles({ colors, radii }: Theme) {
   return StyleSheet.create({
     empty: { padding: 20, alignItems: "center" },
     emptyText: { color: colors.textMuted },
+    chartArea: { position: "relative" },
     chartOrigin: { transformOrigin: "bottom" },
     modeToggle: {
       flexDirection: "row",
@@ -322,12 +364,58 @@ function makeStyles({ colors, radii }: Theme) {
     modeChipTextActive: {
       color: colors.primaryText,
     },
-    labels: {
+    tooltip: {
+      position: "absolute",
+      width: TOOLTIP_WIDTH,
+      height: TOOLTIP_HEIGHT,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.border,
+      borderRadius: radii.md,
+      paddingVertical: 6,
+      paddingHorizontal: 10,
+      justifyContent: "center",
+      alignItems: "center",
+      shadowColor: "#000",
+      shadowOpacity: 0.25,
+      shadowRadius: 6,
+      shadowOffset: { width: 0, height: 2 },
+      elevation: 6,
+    },
+    tooltipValue: {
+      fontSize: 22,
+      fontWeight: "800",
+      color: colors.text,
+      lineHeight: 26,
+    },
+    tooltipSubvalue: {
+      fontSize: 13,
+      color: colors.textMuted,
+      fontWeight: "600",
+    },
+    statsRow: {
       flexDirection: "row",
       justifyContent: "space-between",
-      marginTop: 4,
+      marginTop: 10,
     },
-    labelText: { fontSize: 12, color: colors.textMuted },
-    touchedText: { fontSize: 12, color: colors.text, fontWeight: "600" },
+    statCell: {
+      flex: 1,
+    },
+    statCellEnd: {
+      alignItems: "flex-end",
+    },
+    statLabel: {
+      fontSize: 12,
+      color: colors.textMuted,
+      fontWeight: "600",
+      textTransform: "uppercase",
+      letterSpacing: 0.5,
+    },
+    statValue: {
+      fontSize: 18,
+      fontWeight: "700",
+      color: colors.text,
+      marginTop: 2,
+    },
   });
 }
